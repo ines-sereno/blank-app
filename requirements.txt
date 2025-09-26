@@ -1,4 +1,6 @@
 streamlit
 simpy
 numpy
-matplotlib.pyplot
+matplotlib
+pandas
+altair
