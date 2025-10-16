@@ -3,303 +3,318 @@ import simpy
 import random
 import numpy as np
 import math
-import io
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# -----------------------------
-# Utility helpers
-# -----------------------------
-# draws an exponential service time with the specified mean in minutes
+# =============================
+# Utilities
+# =============================
 def exp_time(mean):
-    # Exponential with mean "mean"; handle 0 safely
     if mean <= 0:
         return 0.0
     return random.expovariate(1.0/mean)
 
-# draws a normal service time using mean and a coefficient of variation
 def normal_time(mean, cv=0.4):
     if mean <= 0:
         return 0.0
     sd = max(1e-6, mean * cv)
-    t = random.gauss(mean, sd)
-    return max(0.0, t)
+    return max(0.0, random.gauss(mean, sd))
 
-# generated a lognormal multiplier with mean 1 and user-chosen CV
-# for per-task heterogeneity; each task is randomly faster/slower
 def speed_multiplier_from_cv(cv):
-    """
-    Per-task heterogeneity: draw a lognormal multiplier with mean 1 and user CV.
-    """
     if cv <= 0:
         return 1.0
     sigma = math.sqrt(math.log(1 + cv**2))
     mu = -0.5 * sigma**2
     return np.random.lognormal(mean=mu, sigma=sigma)
 
-# picks which base distribution to use for a given role
-def draw_service_time(role, mean, dist_map, cv_task):
-    """
-    Role-based service-time draw with heterogeneity multiplier.
-    """
-    dist = dist_map.get(role, "exponential")
-    if dist == "normal":
-        base = normal_time(mean, cv=0.4)
-    else:
-        base = exp_time(mean)
-    mult = speed_multiplier_from_cv(cv_task)
-    return base * mult
+def draw_service_time(role_for_dist, mean, dist_map, cv_task):
+    dist = dist_map.get(role_for_dist, "exponential")
+    base = normal_time(mean, cv=0.4) if dist == "normal" else exp_time(mean)
+    return base * speed_multiplier_from_cv(cv_task)
 
-# formats a fraction as a percentage string
 def pct(x):
-    return f"{100*x:.1f}%"
+    try:
+        return f"{100*float(x):.1f}%"
+    except Exception:
+        return "0.0%"
 
-# -----------------------------
-# Metrics container
-# -----------------------------
+# =============================
+# Work schedule helpers
+# =============================
+MIN_PER_HOUR = 60
+DAY_MIN = 24 * MIN_PER_HOUR
+
+def is_open(t_min, open_minutes):
+    return (t_min % DAY_MIN) < open_minutes
+
+def minutes_until_close(t_min, open_minutes):
+    t_mod = t_min % DAY_MIN
+    return max(0.0, open_minutes - t_mod)
+
+def minutes_until_open(t_min, open_minutes):
+    t_mod = t_min % DAY_MIN
+    if t_mod < open_minutes:
+        return 0.0
+    return DAY_MIN - t_mod
+
+def day_index_at(t_min):
+    return int(t_min // DAY_MIN)
+
+# =============================
+# Metrics
+# =============================
 class Metrics:
     def __init__(self):
-        # times when we sampled queues
         self.time_stamps = []
-
-        # queue length time series for each role
-        self.queues = {"FrontDesk": [], "Nurse": [], "Provider": [], "BackOffice": []}
-
-        # list of nidividual wait time each entity experienced before getting service at that role
-        self.waits = {"FrontDesk": [], "Nurse": [], "Provider": [], "BackOffice": []}
-        
-        # how many service taps occurres at each role
-        self.taps = {"FrontDesk": 0, "Nurse": 0, "Provider": 0, "BackOffice": 0}
-
-        # counters for flow outcomes
+        self.queues = {"Front Desk": [], "Nurse": [], "Provider": [], "Back Office": []}
+        self.waits = {"Front Desk": [], "Nurse": [], "Provider": [], "Back Office": []}
+        self.taps = {"Front Desk": 0, "Nurse": 0, "Provider": 0, "Back Office": 0}
+        self.completed = 0
         self.resolved_admin = 0
         self.resolved_protocol = 0
-        self.completed = 0
         self.routed_backoffice = 0
-
-        # how many requests entered the system
         self.arrivals = 0
-
-        # utilization approximation - total busy minutes per role
-        self.service_time_sum = {"FrontDesk": 0.0, "Nurse": 0.0, "Provider": 0.0, "BackOffice": 0.0}
-
-        # loop-backs & misroutes
+        self.service_time_sum = {"Front Desk": 0.0, "Nurse": 0.0, "Provider": 0.0, "Back Office": 0.0}
         self.loop_fd_insufficient = 0
         self.loop_nurse_insufficient = 0
-        self.misroutes = 0
-
-        # light event log (time, name, stage, note)
+        # event: (time_min, task_id, step_code, note, arrival_time_min)
         self.events = []
+        # lifecycle
+        self.task_arrival_time = {}     # id -> time_min
+        self.task_completion_time = {}  # id -> time_min
 
-    # event log that can be exported
-    def log(self, t, name, stage, note=""):
-        self.events.append((t, name, stage, note))
+    def log(self, t, name, step, note="", arrival_t=None):
+        self.events.append((t, name, step, note, arrival_t if arrival_t is not None else self.task_arrival_time.get(name)))
 
-# -----------------------------
-# System with SimPy resources
-# -----------------------------
+# =============================
+# Step labels (user-facing)
+# =============================
+STEP_LABELS = {
+    "ARRIVE": "Task arrived",
+    "FD_QUEUE": "Front Desk: queued",
+    "FD_DONE": "Front Desk: completed",
+    "FD_INSUFF": "Front Desk: missing info",
+    "FD_RETRY_QUEUE": "Front Desk: re-queued (info)",
+    "FD_RETRY_DONE": "Front Desk: re-done (info)",
+    "NU_QUEUE": "Nurse: queued",
+    "NU_DONE": "Nurse: completed",
+    "NU_INSUFF": "Nurse: missing info (back to Front Desk)",
+    "NU_RECHECK_QUEUE": "Nurse: re-check queued",
+    "NU_RECHECK_DONE": "Nurse: re-check completed",
+    "PR_QUEUE": "Provider: queued",
+    "PR_DONE": "Provider: completed",
+    "BO_QUEUE": "Back Office: queued",
+    "BO_DONE": "Back Office: completed",
+    "DONE": "Task resolved"
+}
+def pretty_step(code):
+    return STEP_LABELS.get(code, code)
+
+# =============================
+# System
+# =============================
 class CHCSystem:
     def __init__(self, env, params, metrics):
         self.env = env
         self.p = params
         self.m = metrics
-
-        # Resources - and capacity 
+        # Resources
         self.frontdesk = simpy.Resource(env, capacity=params["frontdesk_cap"])
         self.nurse = simpy.Resource(env, capacity=params["nurse_cap"])
         self.provider = simpy.Resource(env, capacity=params["provider_cap"])
         self.backoffice = simpy.Resource(env, capacity=params["backoffice_cap"])
 
-    def service(self, role, mean_time):
-        # Role-based dist + heterogeneity + EMR overhead
-        dur_core = draw_service_time(role, mean_time, self.p["dist_role"], self.p["cv_speed"])
-        dur_emr = max(0.0, self.p["emr_overhead"].get(role, 0.0))
-        dur = dur_core + dur_emr
-        self.m.service_time_sum[role] += dur
-        yield self.env.timeout(dur)
+    def scheduled_service(self, resource, role_account, mean_time, role_for_dist=None):
+        """
+        Service chunks that respect clinic hours; releases resource at close and resumes when open.
+        """
+        if role_for_dist is None:
+            role_for_dist = role_account
+        remaining = draw_service_time(role_for_dist, mean_time, self.p["dist_role"], self.p["cv_speed"])
+        emr = max(0.0, self.p["emr_overhead"].get(role_account, 0.0))
+        remaining += emr
 
-# -----------------------------
-# Arrival generator
-# -----------------------------
+        while remaining > 1e-9:
+            if not is_open(self.env.now, self.p["open_minutes"]):
+                yield self.env.timeout(minutes_until_open(self.env.now, self.p["open_minutes"]))
+            window = minutes_until_close(self.env.now, self.p["open_minutes"])
+            work_chunk = min(remaining, window)
+            with resource.request() as req:
+                t_req = self.env.now
+                yield req
+                self.m.waits[role_account].append(self.env.now - t_req)
+                self.m.taps[role_account] += 1
+                yield self.env.timeout(work_chunk)
+                self.m.service_time_sum[role_account] += work_chunk
+            remaining -= work_chunk
+
+# =============================
+# Processes
+# =============================
 def arrival_process(env, system):
     i = 0
     while True:
-        # inter-arrival based on Poisson process
         lam = system.p["arrivals_per_hour"] / 60.0
-
-        # exponential inter-arrival time and waits that long
         inter = random.expovariate(lam) if lam > 0 else 999999
         yield env.timeout(inter)
         i += 1
+        task_id = f"T-{i:05d}"
         system.m.arrivals += 1
-        name = f"Req-{i:04d}"
-        system.m.log(env.now, name, "ARRIVE", "")
-        env.process(workflow(env, name, system))
+        system.m.task_arrival_time[task_id] = env.now
+        system.m.log(env.now, task_id, "ARRIVE", "New task (email/phone/message)", arrival_t=env.now)
+        env.process(task_workflow(env, task_id, system))
 
-# -----------------------------
-# Workflow logic
-# -----------------------------
-# end to end path for a single request
-def workflow(env, name, s: CHCSystem):
-    start_time = env.now
+def task_workflow(env, task_id, s: CHCSystem):
+    fd_loops = 0
+    nurse_loops = 0
 
-    # ---- Front Desk ----
-    with s.frontdesk.request() as req:
-        t_req = env.now # request capacity
-        yield req
-        s.m.waits["FrontDesk"].append(env.now - t_req) # record wait time
-        s.m.taps["FrontDesk"] += 1 # record a tap
-        s.m.log(env.now, name, "FRONT_DESK_IN", "") 
-        yield env.process(s.service("FrontDesk", s.p["svc_frontdesk"])) # perform front desk service
-        s.m.log(env.now, name, "FRONT_DESK_OUT", "")
+    # Front Desk
+    s.m.log(env.now, task_id, "FD_QUEUE", "")
+    yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
+    s.m.log(env.now, task_id, "FD_DONE", "")
 
-    # --- Possible insufficient info at Front Desk -> loop back after delay ---
-    if random.random() < s.p.get("p_fd_insuff", 0.0):
+    # Missing info loops at Front Desk
+    while (fd_loops < s.p["max_fd_loops"]) and (random.random() < s.p["p_fd_insuff"]):
+        fd_loops += 1
         s.m.loop_fd_insufficient += 1
-        s.m.log(env.now, name, "FD_INSUFF", "Request more info")
-        yield env.timeout(s.p.get("fd_loop_delay", 0.0))
-        with s.frontdesk.request() as req2:
-            t_req2 = env.now
-            yield req2
-            s.m.waits["FrontDesk"].append(env.now - t_req2)
-            s.m.taps["FrontDesk"] += 1
-            s.m.log(env.now, name, "FRONT_DESK_IN2", "Loop-back")
-            yield env.process(s.service("FrontDesk", s.p["svc_frontdesk"]))
-            s.m.log(env.now, name, "FRONT_DESK_OUT2", "Loop-back done")
+        s.m.log(env.now, task_id, "FD_INSUFF", f"Missing info loop #{fd_loops}")
+        yield env.timeout(s.p["fd_loop_delay"])
+        s.m.log(env.now, task_id, "FD_RETRY_QUEUE", f"Loop #{fd_loops}")
+        yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
+        s.m.log(env.now, task_id, "FD_RETRY_DONE", f"Loop #{fd_loops}")
 
-    # admin vs clinical
+    # Resolved administratively?
     if random.random() < s.p["p_admin"]:
         s.m.resolved_admin += 1
         s.m.completed += 1
-        s.m.log(env.now, name, "DONE", "Resolved at Front Desk")
+        s.m.task_completion_time[task_id] = env.now
+        s.m.log(env.now, task_id, "DONE", "Resolved administratively")
         return
 
-    # ---- Nurse/MA ----
-    with s.nurse.request() as req:
-        t_req = env.now
-        yield req
-        s.m.waits["Nurse"].append(env.now - t_req)
-        s.m.taps["Nurse"] += 1
-        s.m.log(env.now, name, "NURSE_IN", "")
-        # protocol?
-        if random.random() < s.p["p_protocol"]:
-            yield env.process(s.service("Nurse", s.p["svc_nurse_protocol"]))
-            s.m.resolved_protocol += 1
-            s.m.completed += 1
-            s.m.log(env.now, name, "DONE", "Resolved by protocol")
-            return
-        else:
-            yield env.process(s.service("Nurse", s.p["svc_nurse"]))
-            s.m.log(env.now, name, "NURSE_OUT", "")
+    # Nurse
+    s.m.log(env.now, task_id, "NU_QUEUE", "")
+    if random.random() < s.p["p_protocol"]:
+        yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse_protocol"], role_for_dist="NurseProtocol")
+        s.m.resolved_protocol += 1
+        s.m.completed += 1
+        s.m.task_completion_time[task_id] = env.now
+        s.m.log(env.now, task_id, "DONE", "Resolved by nurse protocol")
+        return
+    else:
+        yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse"])
+        s.m.log(env.now, task_id, "NU_DONE", "")
 
-    # --- Possible insufficient info discovered by Nurse ---
-    if random.random() < s.p.get("p_nurse_insuff", 0.0):
+    # Missing info discovered by Nurse (back to FD, then re-check)
+    while (nurse_loops < s.p["max_nurse_loops"]) and (random.random() < s.p["p_nurse_insuff"]):
+        nurse_loops += 1
         s.m.loop_nurse_insufficient += 1
-        with s.frontdesk.request() as req3:
-            t_req3 = env.now
-            yield req3
-            s.m.waits["FrontDesk"].append(env.now - t_req3)
-            s.m.taps["FrontDesk"] += 1
-            s.m.log(env.now, name, "FRONT_DESK_IN3", "Collect missing info")
-            yield env.process(s.service("FrontDesk", s.p["svc_frontdesk"]))
-            s.m.log(env.now, name, "FRONT_DESK_OUT3", "Info collected")
-        with s.nurse.request() as req4:
-            t_req4 = env.now
-            yield req4
-            s.m.waits["Nurse"].append(env.now - t_req4)
-            s.m.taps["Nurse"] += 1
-            s.m.log(env.now, name, "NURSE_RECHECK_IN", "Re-check after info")
-            yield env.process(s.service("Nurse", max(0.0, 0.5 * s.p["svc_nurse"])))
-            s.m.log(env.now, name, "NURSE_RECHECK_OUT", "")
+        s.m.log(env.now, task_id, "NU_INSUFF", f"Back to Front Desk loop #{nurse_loops}")
+        s.m.log(env.now, task_id, "FD_QUEUE", f"After nurse loop #{nurse_loops}")
+        yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
+        s.m.log(env.now, task_id, "FD_DONE", f"After nurse loop #{nurse_loops}")
+        s.m.log(env.now, task_id, "NU_RECHECK_QUEUE", f"Loop #{nurse_loops}")
+        yield from s.scheduled_service(s.nurse, "Nurse", max(0.0, 0.5 * s.p["svc_nurse"]))
+        s.m.log(env.now, task_id, "NU_RECHECK_DONE", f"Loop #{nurse_loops}")
 
-    # ---- Provider ----
-    with s.provider.request() as req:
-        t_req = env.now
-        yield req
-        s.m.waits["Provider"].append(env.now - t_req)
-        s.m.taps["Provider"] += 1
-        s.m.log(env.now, name, "PROVIDER_IN", "")
-        # Misrouting: wrong provider first
-        if random.random() < s.p.get("p_misroute", 0.0):
-            s.m.misroutes += 1
-            yield env.process(s.service("Provider", s.p["svc_provider"]))
-            s.m.log(env.now, name, "PROVIDER_WRONG_OUT", "Misroute handled")
-        # Correct provider touch
-        yield env.process(s.service("Provider", s.p["svc_provider"]))
-        s.m.log(env.now, name, "PROVIDER_OUT", "")
+    # Provider
+    s.m.log(env.now, task_id, "PR_QUEUE", "")
+    yield from s.scheduled_service(s.provider, "Provider", s.p["svc_provider"])
+    s.m.log(env.now, task_id, "PR_DONE", "")
 
-    # ---- Back Office (sometimes) ----
+    # Back Office (optional)
     if random.random() < s.p["p_backoffice"]:
-        with s.backoffice.request() as req:
-            t_req = env.now
-            yield req
-            s.m.waits["BackOffice"].append(env.now - t_req)
-            s.m.taps["BackOffice"] += 1
-            s.m.log(env.now, name, "BACKOFFICE_IN", "")
-            yield env.process(s.service("BackOffice", s.p["svc_backoffice"]))
-            s.m.routed_backoffice += 1
-            s.m.log(env.now, name, "BACKOFFICE_OUT", "")
+        s.m.log(env.now, task_id, "BO_QUEUE", "")
+        yield from s.scheduled_service(s.backoffice, "Back Office", s.p["svc_backoffice"])
+        s.m.routed_backoffice += 1
+        s.m.log(env.now, task_id, "BO_DONE", "")
 
     s.m.completed += 1
-    s.m.log(env.now, name, "DONE", "")
+    s.m.task_completion_time[task_id] = env.now
+    s.m.log(env.now, task_id, "DONE", "Task completed")
 
-# -----------------------------
-# Monitor queues each minute
-# -----------------------------
 def monitor(env, s: CHCSystem):
     while True:
         s.m.time_stamps.append(env.now)
-        s.m.queues["FrontDesk"].append(len(s.frontdesk.queue))
+        s.m.queues["Front Desk"].append(len(s.frontdesk.queue))
         s.m.queues["Nurse"].append(len(s.nurse.queue))
         s.m.queues["Provider"].append(len(s.provider.queue))
-        s.m.queues["BackOffice"].append(len(s.backoffice.queue))
+        s.m.queues["Back Office"].append(len(s.backoffice.queue))
         yield env.timeout(1)
 
-# -----------------------------
+# =============================
 # Streamlit UI
-# -----------------------------
-st.set_page_config(page_title="CHC Burnout DES", layout="wide")
-st.title("Community Health Center Workflow — DES Simulator (SimPy)")
+# =============================
+st.set_page_config(page_title="CHC Burnout Model — HSyE at Northeastern University", layout="wide")
+st.title("CHC Burnout Model — HSyE at Northeastern University")
 
+# ---- Landing intro (with a percentile note) ----
+st.markdown("""
+### Welcome to the CHC Task Workflow Simulator
+This model simulates **asynchronous tasks** a clinic handles every day — **emails, phone calls, and portal messages** — as they move through **Front Desk → Nurse → Provider → (optional) Back Office**.
+
+**What you can do here**
+- Stress-test your clinic by changing **arrivals**, **staffing**, **open hours**, **EMR overhead**, and **routing** (where tasks get resolved).
+- Explore operational pain points like **backlogs**, **waits**, **cycle time**, and **carryover to the next day**.
+- Visualize bottlenecks with compact charts and dive deeper in the **Analysis** tab.
+
+**How to get started**
+1) Open the **Simulation Controls** on the left (sections are collapsible).
+2) Choose **Simulation time (hours)**, **arrivals/hour**, **open hours**, and **capacities**.
+3) Click **Run Simulation**.  
+Results show under the **Run** tab; deeper diagnostics live in the **Analysis** tab.
+""")
+
+# --- Sidebar controls (expanders) ---
 with st.sidebar:
     st.header("Simulation Controls")
-    sim_minutes = st.slider("Simulation time (minutes)", 60, 24*60, 8*60, step=30)
-    arrivals_per_hour = st.slider("Arrivals per hour", 1, 40, 12)
-    st.subheader("Capacities (# staff)")
-    fd_cap = st.slider("Front Desk capacity", 0, 5, 1)
-    nurse_cap = st.slider("Nurse/MA capacity", 0, 5, 1)
-    provider_cap = st.slider("Provider capacity", 0, 5, 1)
-    bo_cap = st.slider("Back Office capacity", 0, 5, 1)
 
-    st.subheader("Routing Probabilities")
-    p_admin = st.slider("Admin at Front Desk", 0.0, 1.0, 0.30, 0.05)
-    p_protocol = st.slider("Resolved by Protocol (Nurse)", 0.0, 1.0, 0.40, 0.05)
-    p_backoffice = st.slider("Requires Back Office", 0.0, 1.0, 0.20, 0.05)
+    with st.expander("Simulation Duration & Arrivals", expanded=True):
+        sim_hours = st.slider("Simulation time (hours)", 1, 24*7, 8, step=1)
+        sim_minutes = sim_hours * MIN_PER_HOUR
+        arrivals_per_hour = st.slider("Average task arrivals per hour", 1, 60, 12)
 
-    st.subheader("Service Times (mean minutes)")
-    svc_frontdesk = st.slider("Front Desk mean", 0.0, 15.0, 3.0, 0.5)
-    svc_nurse_protocol = st.slider("Nurse Protocol mean", 0.0, 15.0, 2.0, 0.5)
-    svc_nurse = st.slider("Nurse (non-protocol) mean", 0.0, 20.0, 4.0, 0.5)
-    svc_provider = st.slider("Provider mean", 0.0, 30.0, 6.0, 0.5)
-    svc_backoffice = st.slider("Back Office mean", 0.0, 30.0, 5.0, 0.5)
+    with st.expander("Clinic Hours"):
+        open_hours = st.slider("Hours open per day", 1, 24, 8)
+        open_minutes = open_hours * MIN_PER_HOUR
 
-    st.subheader("Heterogeneity")
-    cv_speed = st.slider("Per-task speed CV (all roles)", 0.0, 0.6, 0.25, 0.05)
+    with st.expander("Capacities (Staff on duty)"):
+        fd_cap = st.slider("Front Desk", 0, 10, 1)
+        nurse_cap = st.slider("Nurse / MA", 0, 10, 1)
+        provider_cap = st.slider("Provider", 0, 10, 1)
+        bo_cap = st.slider("Back Office", 0, 10, 1)
 
-    st.subheader("Tech/EMR Overhead (minutes per touch)")
-    emr_fd = st.slider("Front Desk EMR overhead", 0.0, 5.0, 0.5, 0.1)
-    emr_nu = st.slider("Nurse EMR overhead", 0.0, 5.0, 0.5, 0.1)
-    emr_pr = st.slider("Provider EMR overhead", 0.0, 5.0, 0.5, 0.1)
-    emr_bo = st.slider("Back Office EMR overhead", 0.0, 5.0, 0.5, 0.1)
+    with st.expander("Routing (Where tasks resolve)"):
+        p_admin = st.slider("Resolved at Front Desk", 0.0, 1.0, 0.30, 0.05)
+        p_protocol = st.slider("Resolved by Nurse protocol", 0.0, 1.0, 0.40, 0.05)
+        p_backoffice = st.slider("Requires Back Office after Provider", 0.0, 1.0, 0.20, 0.05)
 
-    st.subheader("Loop-backs / Misrouting")
-    p_fd_insuff = st.slider("Insufficient info at Front Desk (loop back)", 0.0, 0.4, 0.05, 0.01)
-    p_nurse_insuff = st.slider("Insufficient info at Nurse (back to FD, then Nurse)", 0.0, 0.4, 0.05, 0.01)
-    p_misroute = st.slider("Misrouted after Nurse (wrong provider first)", 0.0, 0.3, 0.05, 0.01)
-    fd_loop_delay = st.slider("Patient info loop delay (min)", 0.0, 120.0, 30.0, 5.0)
+    with st.expander("Service Times (mean minutes)"):
+        svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, 3.0, 0.5)
+        svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, 2.0, 0.5)
+        svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, 4.0, 0.5)
+        svc_provider = st.slider("Provider", 0.0, 60.0, 6.0, 0.5)
+        svc_backoffice = st.slider("Back Office", 0.0, 60.0, 5.0, 0.5)
 
-    seed = st.number_input("Random seed (for reproducibility)", min_value=0, max_value=999999, value=42, step=1)
+    with st.expander("Variability & EMR Overheads"):
+        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, 0.25, 0.05)
+        emr_fd = st.slider("Front Desk EMR overhead", 0.0, 5.0, 0.5, 0.1)
+        emr_nu = st.slider("Nurse EMR overhead", 0.0, 5.0, 0.5, 0.1)
+        emr_pr = st.slider("Provider EMR overhead", 0.0, 5.0, 0.5, 0.1)
+        emr_bo = st.slider("Back Office EMR overhead", 0.0, 5.0, 0.5, 0.1)
 
+    with st.expander("Bounces (Missing Information)"):
+        p_fd_insuff = st.slider("Chance Front Desk bounce", 0.0, 0.6, 0.05, 0.01)
+        max_fd_loops = st.slider("Max Front Desk info loops", 0, 10, 3)
+        fd_loop_delay = st.slider("Time to collect missing info (min)", 0.0, 240.0, 30.0, 5.0)
+        p_nurse_insuff = st.slider("Chance Nurse needs more info", 0.0, 0.6, 0.05, 0.01)
+        max_nurse_loops = st.slider("Max Nurse re-check loops", 0, 10, 2)
+
+    seed = st.number_input("Random seed", min_value=0, max_value=999999, value=42, step=1)
     run = st.button("Run Simulation")
+
+# --- Cache last results unless user clicks Run ---
+if "results" not in st.session_state:
+    st.session_state["results"] = None
 
 if run:
     random.seed(seed)
@@ -307,29 +322,17 @@ if run:
 
     params = dict(
         arrivals_per_hour=arrivals_per_hour,
-        frontdesk_cap=fd_cap,
-        nurse_cap=nurse_cap,
-        provider_cap=provider_cap,
-        backoffice_cap=bo_cap,
-        p_admin=p_admin,
-        p_protocol=p_protocol,
-        p_backoffice=p_backoffice,
-        svc_frontdesk=svc_frontdesk,
-        svc_nurse_protocol=svc_nurse_protocol,
-        svc_nurse=svc_nurse,
-        svc_provider=svc_provider,
-        svc_backoffice=svc_backoffice,
-        # role-specific distributions
-        dist_role={"FrontDesk":"normal","NurseProtocol":"normal","Nurse":"exponential","Provider":"exponential","BackOffice":"exponential"},
-        # heterogeneity
+        open_minutes=open_minutes,
+        frontdesk_cap=fd_cap, nurse_cap=nurse_cap, provider_cap=provider_cap, backoffice_cap=bo_cap,
+        p_admin=p_admin, p_protocol=p_protocol, p_backoffice=p_backoffice,
+        svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
+        svc_provider=svc_provider, svc_backoffice=svc_backoffice,
+        dist_role={"Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential",
+                   "Provider":"exponential","Back Office":"exponential"},
         cv_speed=cv_speed,
-        # EMR overhead
-        emr_overhead={"FrontDesk": emr_fd, "Nurse": emr_nu, "NurseProtocol": emr_nu, "Provider": emr_pr, "BackOffice": emr_bo},
-        # loop-backs / misrouting
-        p_fd_insuff=p_fd_insuff,
-        p_nurse_insuff=p_nurse_insuff,
-        p_misroute=p_misroute,
-        fd_loop_delay=fd_loop_delay,
+        emr_overhead={"Front Desk":emr_fd,"Nurse":emr_nu,"NurseProtocol":emr_nu,"Provider":emr_pr,"Back Office":emr_bo},
+        p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
+        p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops
     )
 
     metrics = Metrics()
@@ -339,78 +342,152 @@ if run:
     env.process(monitor(env, system))
     env.run(until=sim_minutes)
 
-    # ----------- KPIs -----------
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Arrivals", f"{metrics.arrivals}")
-        st.metric("Completed", f"{metrics.completed}")
-    with col2:
-        st.metric("Resolved at Front Desk", f"{metrics.resolved_admin} ({pct(metrics.resolved_admin/max(1,metrics.arrivals))})")
-        st.metric("Resolved by Protocol", f"{metrics.resolved_protocol} ({pct(metrics.resolved_protocol/max(1,metrics.arrivals))})")
-    with col3:
-        routed_pct = metrics.routed_backoffice/max(1,metrics.arrivals)
-        st.metric("Routed to Back Office", f"{metrics.routed_backoffice} ({pct(routed_pct)})")
-    with col4:
-        # crude utilizations (sum service time / (capacity * sim time))
-        util_fd = metrics.service_time_sum["FrontDesk"] / (max(1,fd_cap) * sim_minutes)
-        util_nu = metrics.service_time_sum["Nurse"] / (max(1,nurse_cap) * sim_minutes)
-        util_pr = metrics.service_time_sum["Provider"] / (max(1,provider_cap) * sim_minutes)
-        util_bo = metrics.service_time_sum["BackOffice"] / (max(1,bo_cap) * sim_minutes)
-        st.metric("Provider Utilization", pct(min(1.0,util_pr)))
-        st.metric("Nurse Utilization", pct(min(1.0,util_nu)))
-        st.metric("Front Desk Utilization", pct(min(1.0,util_fd)))
+    # Build event DataFrame once; persist in session
+    df_events = pd.DataFrame(
+        metrics.events,
+        columns=["Time (min)","Task ID","Step Code","Note","Arrival Time (min)"]
+    ).sort_values("Time (min)")
+    df_events["Step"] = df_events["Step Code"].map(pretty_step)
+    df_events["Day"] = (df_events["Time (min)"] // DAY_MIN).astype(int)
 
-    # Loop-back / misroute metrics
-    colA, colB, colC = st.columns(3)
-    with colA:
-        st.metric("FD Insufficient-Info Loops", f"{metrics.loop_fd_insufficient}")
-    with colB:
-        st.metric("Nurse Insufficient-Info Loops", f"{metrics.loop_nurse_insufficient}")
-    with colC:
-        st.metric("Misroutes (Wrong Provider First)", f"{metrics.misroutes}")
+    # Daily backlog + carryover
+    total_days = int(math.ceil(sim_minutes / DAY_MIN))
+    backlog_by_day = []
+    carryover_by_day = []
+    for d in range(total_days):
+        arrivals_to_date = sum(1 for tid,t in metrics.task_arrival_time.items() if day_index_at(t) <= d)
+        completed_to_date = sum(1 for tid,t in metrics.task_completion_time.items() if t is not None and day_index_at(t) <= d)
+        backlog = max(0, arrivals_to_date - completed_to_date)
+        backlog_by_day.append((d, backlog))
 
-    st.markdown("---")
+        carry = 0
+        for tid, t_a in metrics.task_arrival_time.items():
+            a_day = day_index_at(t_a)
+            if a_day == d:
+                t_c = metrics.task_completion_time.get(tid, None)
+                if (t_c is None) or (day_index_at(t_c) > d):
+                    carry += 1
+        carryover_by_day.append((d, carry))
 
-    # ----------- Plots -----------
-    # 1) Queue length time series
-    fig1 = plt.figure(figsize=(8,3))
-    for role, q in metrics.queues.items():
-        plt.plot(metrics.time_stamps, q, label=role)
-    plt.xlabel("Time (min)")
-    plt.ylabel("Queue length")
-    plt.title("Queue lengths over time")
-    plt.legend()
-    st.pyplot(fig1, clear_figure=True)
+    # Helper stats
+    def safe_avg(xs): return float(np.mean(xs)) if len(xs)>0 else 0.0
+    def safe_p90(xs): return float(np.percentile(xs,90)) if len(xs)>0 else 0.0
 
-    # 2) Wait time histograms (per station) - one chart per instructions
-    for role in ["FrontDesk", "Nurse", "Provider", "BackOffice"]:
-        waits = metrics.waits[role]
-        fig = plt.figure(figsize=(6,3))
-        if len(waits) > 0:
-            plt.hist(waits, bins=min(30, max(5, int(math.sqrt(len(waits))))))
-        plt.xlabel(f"Wait time in {role} queue (min)")
+    # Cycle time per completed task (minutes)
+    ct_rows = []
+    for tid, t_c in metrics.task_completion_time.items():
+        if t_c is not None:
+            t_a = metrics.task_arrival_time.get(tid)
+            if t_a is not None:
+                ct_rows.append(dict(task_id=tid, cycle_time_min=t_c - t_a))
+    df_cycle = pd.DataFrame(ct_rows)
+
+    # KPI table (labels improved)
+    df_kpis = pd.DataFrame({
+        "Metric": [
+            "Tasks arrived", "Tasks completed", "Completion rate",
+            "Resolved at Front Desk", "Resolved by Nurse Protocol", "Sent to Back Office",
+            "Utilization — Front Desk", "Utilization — Nurse", "Utilization — Provider", "Utilization — Back Office",
+            "Average wait (min) — Front Desk", "90th percentile wait (min) — Front Desk",
+            "Average wait (min) — Nurse", "90th percentile wait (min) — Nurse",
+            "Average wait (min) — Provider", "90th percentile wait (min) — Provider",
+            "Average wait (min) — Back Office", "90th percentile wait (min) — Back Office",
+            "Average cycle time (min, completed)", "90th percentile cycle time (min, completed)"
+        ],
+        "Value": [
+            metrics.arrivals,
+            metrics.completed,
+            pct(metrics.completed / max(1, metrics.arrivals)),
+            metrics.resolved_admin,
+            metrics.resolved_protocol,
+            metrics.routed_backoffice,
+            pct(min(1.0, metrics.service_time_sum["Front Desk"] / (max(1,fd_cap) * sim_minutes))),
+            pct(min(1.0, metrics.service_time_sum["Nurse"] / (max(1,nurse_cap) * sim_minutes))),
+            pct(min(1.0, metrics.service_time_sum["Provider"] / (max(1,provider_cap) * sim_minutes))),
+            pct(min(1.0, metrics.service_time_sum["Back Office"] / (max(1,bo_cap) * sim_minutes))),
+            round(safe_avg(metrics.waits["Front Desk"]),2), round(safe_p90(metrics.waits["Front Desk"]),2),
+            round(safe_avg(metrics.waits["Nurse"]),2), round(safe_p90(metrics.waits["Nurse"]),2),
+            round(safe_avg(metrics.waits["Provider"]),2), round(safe_p90(metrics.waits["Provider"]),2),
+            round(safe_avg(metrics.waits["Back Office"]),2), round(safe_p90(metrics.waits["Back Office"]),2),
+            (round(df_cycle["cycle_time_min"].mean(),2) if not df_cycle.empty else 0.0),
+            (round(np.percentile(df_cycle["cycle_time_min"],90),2) if not df_cycle.empty else 0.0)
+        ]
+    })
+
+    # Persist
+    st.session_state["results"] = dict(
+        df_events=df_events,
+        df_kpis=df_kpis,
+        queues=metrics.queues,
+        times=metrics.time_stamps,
+        waits=metrics.waits,
+        backlog_by_day=backlog_by_day,
+        carryover_by_day=carryover_by_day,
+        cycle=df_cycle
+    )
+
+# =============================
+# Main content (Tabs)
+# =============================
+res = st.session_state["results"]
+tab_run, tab_analysis = st.tabs(["Run", "Analysis"])
+
+# ----------------- RUN TAB -----------------
+with tab_run:
+    if not res:
+        st.info("Set parameters and press **Run Simulation**.")
+    else:
+        st.subheader("Key Performance Indicators")
+        st.dataframe(res["df_kpis"], use_container_width=True)
+
+        # Event Log (filterable)
+        st.subheader("Event Log")
+        df = res["df_events"]
+        c1, c2, c3 = st.columns([1.2,1.2,0.8])
+        with c1:
+            stage_opts = ["(All Steps)"] + sorted(df["Step"].unique().tolist())
+            pick_stage = st.selectbox("Filter by step", stage_opts, index=0)
+        with c2:
+            id_sub = st.text_input("Filter by Task ID", "")
+        with c3:
+            latest_only = st.checkbox("Show last 500", value=True)
+
+        df_view = df
+        if pick_stage != "(All Steps)":
+            df_view = df_view[df_view["Step"] == pick_stage]
+        if id_sub.strip():
+            df_view = df_view[df_view["Task ID"].str.contains(id_sub.strip(), case=False, regex=False)]
+        if latest_only:
+            df_view = df_view.tail(500)
+
+        st.dataframe(df_view[["Time (min)","Day","Task ID","Step","Note"]], use_container_width=True, height=280)
+
+# ----------------- ANALYSIS TAB -----------------
+with tab_analysis:
+    if not res:
+        st.info("Run a simulation first.")
+    else:
+        # Keep tables if you want (no charts except Pareto). Example: daily backlog table.
+        st.subheader("Daily Backlog & Carryover (Table)")
+        daily_df = pd.DataFrame({
+            "Day": [d for d,_ in res["backlog_by_day"]],
+            "Incomplete tasks at end of day": [v for _,v in res["backlog_by_day"]],
+            "Tasks carried to next day": [v for _,v in res["carryover_by_day"]]
+        })
+        st.dataframe(daily_df, use_container_width=True)
+
+        # Pareto only (smaller figure)
+        st.subheader("Where Do Steps Accumulate? (Pareto)")
+        df_ev = res["df_events"]
+        pareto = df_ev["Step"].value_counts().reset_index()
+        pareto.columns = ["Step","Count"]
+        st.dataframe(pareto.head(10), use_container_width=True)
+
+        # Smaller Pareto chart
+        fig_p = plt.figure(figsize=(3.2, 1.4))  # smaller than before
+        plt.bar(pareto["Step"].head(8), pareto["Count"].head(8))
+        plt.xticks(rotation=45, ha="right", fontsize=8)
         plt.ylabel("Count")
-        plt.title(f"Wait time distribution — {role}")
-        st.pyplot(fig, clear_figure=True)
-
-    # ----------- Event log table -----------
-    st.subheader("Event log (last 500 rows)")
-    import pandas as pd
-    df = pd.DataFrame(metrics.events, columns=["time", "id", "stage", "note"])
-    df = df.sort_values("time").tail(500)
-    st.dataframe(df, use_container_width=True)
-
-    # ----------- Downloadable CSV -----------
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download event log CSV", data=csv, file_name="event_log.csv", mime="text/csv")
-
-    st.markdown("""
-    **Notes**
-    - Queue lengths are sampled every simulated minute.
-    - Utilization is approximated as total service time / (capacity × sim time).
-    - Increase arrivals or reduce capacity to see backlogs form (burnout proxy).
-    - Increase Protocol % to offload Provider workload.
-    """)
-else:
-    st.info("Set your parameters in the sidebar and press **Run Simulation** to see results.")
-
+        plt.title("Top steps")
+        plt.tight_layout()
+        st.pyplot(fig_p, clear_figure=True)
