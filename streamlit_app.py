@@ -438,7 +438,21 @@ else:
             ]
         })
 
-        st.dataframe(df_kpis, use_container_width=True)
+        st.markdown("### Simulation Metrics")
+
+        # Add an info tooltip
+        st.markdown("""
+            #### Loops ℹ️
+            Each **loop** means a task had to be reworked at that stage because of missing information or insufficient detail.  
+            They’re counted whenever the workflow repeats that role’s service (e.g., Front Desk → Nurse → back to Front Desk).  
+            - Front Desk loops: Missing or incomplete info before routing onward  
+            - Nurse loops: Returned for clarification and rechecked  
+            - Provider / Back Office loops: Rework before final resolution
+        """)
+
+    st.dataframe(df_kpis, use_container_width=True)
+
+    st.caption("Note: Loop counts are total occurrences across all simulated tasks.")
 
         # Persist the last results (if you want to export later)
         st.session_state["results"] = dict(df_kpis=df_kpis)
