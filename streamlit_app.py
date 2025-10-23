@@ -131,14 +131,29 @@ class CHCSystem:
         self.env = env
         self.p = params
         self.m = metrics
-        self.frontdesk = simpy.Resource(env, capacity=params["frontdesk_cap"])
-        self.nurse = simpy.Resource(env, capacity=params["nurse_cap"])
-        self.provider = simpy.Resource(env, capacity=params["provider_cap"])
-        self.backoffice = simpy.Resource(env, capacity=params["backoffice_cap"])
+
+        # Store caps for quick checks
+        self.fd_cap = params["frontdesk_cap"]
+        self.nu_cap = params["nurse_cap"]
+        self.pr_cap = params["provider_cap"]
+        self.bo_cap = params["backoffice_cap"]
+
+        # Create resources only if capacity > 0; else set to None (means "role absent")
+        self.frontdesk = simpy.Resource(env, capacity=self.fd_cap) if self.fd_cap > 0 else None
+        self.nurse = simpy.Resource(env, capacity=self.nu_cap) if self.nu_cap > 0 else None
+        self.provider = simpy.Resource(env, capacity=self.pr_cap) if self.pr_cap > 0 else None
+        self.backoffice = simpy.Resource(env, capacity=self.bo_cap) if self.bo_cap > 0 else None
 
     def scheduled_service(self, resource, role_account, mean_time, role_for_dist=None):
+        """
+        If resource is None (capacity 0), skip service entirely.
+        Otherwise, perform service in chunks during open hours.
+        """
+        if resource is None or mean_time <= 1e-12:
+            return
         if role_for_dist is None:
             role_for_dist = role_account
+
         remaining = draw_service_time(role_for_dist, mean_time, self.p["dist_role"], self.p["cv_speed"])
         emr = max(0.0, self.p["emr_overhead"].get(role_account, 0.0))
         remaining += emr
@@ -156,6 +171,7 @@ class CHCSystem:
                 yield self.env.timeout(work_chunk)
                 self.m.service_time_sum[role_account] += work_chunk
             remaining -= work_chunk
+
 
 # =============================
 # Processes
@@ -179,77 +195,88 @@ def task_workflow(env, task_id, s: CHCSystem):
     provider_loops = 0
     bo_loops = 0
 
-    # Front Desk
-    s.m.log(env.now, task_id, "FD_QUEUE", "")
-    yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
-    s.m.log(env.now, task_id, "FD_DONE", "")
-
-    # Front Desk loops
-    while (fd_loops < s.p["max_fd_loops"]) and (random.random() < s.p["p_fd_insuff"]):
-        fd_loops += 1
-        s.m.loop_fd_insufficient += 1
-        s.m.log(env.now, task_id, "FD_INSUFF", f"Missing info loop #{fd_loops}")
-        yield env.timeout(s.p["fd_loop_delay"])
-        s.m.log(env.now, task_id, "FD_RETRY_QUEUE", f"Loop #{fd_loops}")
+    # ---------------- Front Desk ----------------
+    if s.frontdesk is not None:
+        s.m.log(env.now, task_id, "FD_QUEUE", "")
         yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
-        s.m.log(env.now, task_id, "FD_RETRY_DONE", f"Loop #{fd_loops}")
+        s.m.log(env.now, task_id, "FD_DONE", "")
 
-    # Resolved administratively?
-    if random.random() < s.p["p_admin"]:
-        s.m.resolved_admin += 1
-        s.m.completed += 1
-        s.m.task_completion_time[task_id] = env.now
-        s.m.log(env.now, task_id, "DONE", "Resolved administratively")
-        return
+        # FD loops only if FD exists
+        while (fd_loops < s.p["max_fd_loops"]) and (random.random() < s.p["p_fd_insuff"]):
+            fd_loops += 1
+            s.m.loop_fd_insufficient += 1
+            s.m.log(env.now, task_id, "FD_INSUFF", f"Missing info loop #{fd_loops}")
+            yield env.timeout(s.p["fd_loop_delay"])
+            s.m.log(env.now, task_id, "FD_RETRY_QUEUE", f"Loop #{fd_loops}")
+            yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
+            s.m.log(env.now, task_id, "FD_RETRY_DONE", f"Loop #{fd_loops}")
 
-    # Nurse
-    s.m.log(env.now, task_id, "NU_QUEUE", "")
-    if random.random() < s.p["p_protocol"]:
-        yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse_protocol"], role_for_dist="NurseProtocol")
-        s.m.resolved_protocol += 1
-        s.m.completed += 1
-        s.m.task_completion_time[task_id] = env.now
-        s.m.log(env.now, task_id, "DONE", "Resolved by nurse protocol")
-        return
-    else:
-        yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse"])
-        s.m.log(env.now, task_id, "NU_DONE", "")
+        # Resolved administratively? (only if FD exists)
+        if random.random() < s.p["p_admin"]:
+            s.m.resolved_admin += 1
+            s.m.completed += 1
+            s.m.task_completion_time[task_id] = env.now
+            s.m.log(env.now, task_id, "DONE", "Resolved administratively")
+            return
+    # else: FD absent → no admin-resolution path and no FD loops
 
-    # Nurse loops (back to FD then re-check Nurse)
-    while (nurse_loops < s.p["max_nurse_loops"]) and (random.random() < s.p["p_nurse_insuff"]):
-        nurse_loops += 1
-        s.m.loop_nurse_insufficient += 1
-        s.m.log(env.now, task_id, "NU_INSUFF", f"Back to FD loop #{nurse_loops}")
-        s.m.log(env.now, task_id, "FD_QUEUE", f"After nurse loop #{nurse_loops}")
-        yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
-        s.m.log(env.now, task_id, "FD_DONE", f"After nurse loop #{nurse_loops}")
-        s.m.log(env.now, task_id, "NU_RECHECK_QUEUE", f"Loop #{nurse_loops}")
-        yield from s.scheduled_service(s.nurse, "Nurse", max(0.0, 0.5 * s.p["svc_nurse"]))
-        s.m.log(env.now, task_id, "NU_RECHECK_DONE", f"Loop #{nurse_loops}")
+    # ---------------- Nurse ----------------
+    if s.nurse is not None:
+        s.m.log(env.now, task_id, "NU_QUEUE", "")
+        if random.random() < s.p["p_protocol"]:
+            yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse_protocol"], role_for_dist="NurseProtocol")
+            s.m.resolved_protocol += 1
+            s.m.completed += 1
+            s.m.task_completion_time[task_id] = env.now
+            s.m.log(env.now, task_id, "DONE", "Resolved by nurse protocol")
+            return
+        else:
+            yield from s.scheduled_service(s.nurse, "Nurse", s.p["svc_nurse"])
+            s.m.log(env.now, task_id, "NU_DONE", "")
 
-    # Provider
-    s.m.log(env.now, task_id, "PR_QUEUE", "")
-    yield from s.scheduled_service(s.provider, "Provider", s.p["svc_provider"])
-    s.m.log(env.now, task_id, "PR_DONE", "")
+        # Nurse loops only if Nurse exists
+        while (nurse_loops < s.p["max_nurse_loops"]) and (random.random() < s.p["p_nurse_insuff"]):
+            nurse_loops += 1
+            s.m.loop_nurse_insufficient += 1
+            s.m.log(env.now, task_id, "NU_INSUFF", f"Back to FD loop #{nurse_loops}")
 
-    # Provider loops (rework at Provider)
-    while (provider_loops < s.p["max_provider_loops"]) and (random.random() < s.p["p_provider_insuff"]):
-        provider_loops += 1
-        s.m.loop_provider_insufficient += 1
-        s.m.log(env.now, task_id, "PR_INSUFF", f"Provider rework loop #{provider_loops}")
-        yield env.timeout(s.p["provider_loop_delay"])
-        s.m.log(env.now, task_id, "PR_RECHECK_QUEUE", f"Loop #{provider_loops}")
-        yield from s.scheduled_service(s.provider, "Provider", max(0.0, 0.5 * s.p["svc_provider"]))
-        s.m.log(env.now, task_id, "PR_RECHECK_DONE", f"Loop #{provider_loops}")
+            # If FD exists, bounce back; if not, just proceed to a nurse recheck
+            if s.frontdesk is not None:
+                s.m.log(env.now, task_id, "FD_QUEUE", f"After nurse loop #{nurse_loops}")
+                yield from s.scheduled_service(s.frontdesk, "Front Desk", s.p["svc_frontdesk"])
+                s.m.log(env.now, task_id, "FD_DONE", f"After nurse loop #{nurse_loops}")
 
-    # Back Office (optional)
-    if random.random() < s.p["p_backoffice"] or s.p.get("force_backoffice", False):
+            s.m.log(env.now, task_id, "NU_RECHECK_QUEUE", f"Loop #{nurse_loops}")
+            yield from s.scheduled_service(s.nurse, "Nurse", max(0.0, 0.5 * s.p["svc_nurse"]))
+            s.m.log(env.now, task_id, "NU_RECHECK_DONE", f"Loop #{nurse_loops}")
+    # else: Nurse absent → skip directly to Provider
+
+    # ---------------- Provider ----------------
+    if s.provider is not None:
+        s.m.log(env.now, task_id, "PR_QUEUE", "")
+        yield from s.scheduled_service(s.provider, "Provider", s.p["svc_provider"])
+        s.m.log(env.now, task_id, "PR_DONE", "")
+
+        # Provider loops only if Provider exists
+        while (provider_loops < s.p["max_provider_loops"]) and (random.random() < s.p["p_provider_insuff"]):
+            provider_loops += 1
+            s.m.loop_provider_insufficient += 1
+            s.m.log(env.now, task_id, "PR_INSUFF", f"Provider rework loop #{provider_loops}")
+            yield env.timeout(s.p["provider_loop_delay"])
+            s.m.log(env.now, task_id, "PR_RECHECK_QUEUE", f"Loop #{provider_loops}")
+            yield from s.scheduled_service(s.provider, "Provider", max(0.0, 0.5 * s.p["svc_provider"]))
+            s.m.log(env.now, task_id, "PR_RECHECK_DONE", f"Loop #{provider_loops}")
+    # else: Provider absent → skip to Back Office (if it exists) or finish
+
+    # ---------------- Back Office (optional) ----------------
+    # Only route to BO if it exists AND routing probability says so.
+    if (s.backoffice is not None) and (random.random() < s.p["p_backoffice"]):
         s.m.log(env.now, task_id, "BO_QUEUE", "")
         yield from s.scheduled_service(s.backoffice, "Back Office", s.p["svc_backoffice"])
         s.m.routed_backoffice += 1
         s.m.log(env.now, task_id, "BO_DONE", "")
 
-        # Back Office loops (rework at Back Office)
+        # BO loops only if BO exists
         while (bo_loops < s.p["max_backoffice_loops"]) and (random.random() < s.p["p_backoffice_insuff"]):
             bo_loops += 1
             s.m.loop_backoffice_insufficient += 1
@@ -259,6 +286,7 @@ def task_workflow(env, task_id, s: CHCSystem):
             yield from s.scheduled_service(s.backoffice, "Back Office", max(0.0, 0.5 * s.p["svc_backoffice"]))
             s.m.log(env.now, task_id, "BO_RECHECK_DONE", f"Loop #{bo_loops}")
 
+    # If we made it here, task is done
     s.m.completed += 1
     s.m.task_completion_time[task_id] = env.now
     s.m.log(env.now, task_id, "DONE", "Task completed")
@@ -266,11 +294,12 @@ def task_workflow(env, task_id, s: CHCSystem):
 def monitor(env, s: CHCSystem):
     while True:
         s.m.time_stamps.append(env.now)
-        s.m.queues["Front Desk"].append(len(s.frontdesk.queue))
-        s.m.queues["Nurse"].append(len(s.nurse.queue))
-        s.m.queues["Provider"].append(len(s.provider.queue))
-        s.m.queues["Back Office"].append(len(s.backoffice.queue))
+        s.m.queues["Front Desk"].append(len(s.frontdesk.queue) if s.frontdesk is not None else 0)
+        s.m.queues["Nurse"].append(len(s.nurse.queue) if s.nurse is not None else 0)
+        s.m.queues["Provider"].append(len(s.provider.queue) if s.provider is not None else 0)
+        s.m.queues["Back Office"].append(len(s.backoffice.queue) if s.backoffice is not None else 0)
         yield env.timeout(1)
+
 
 # =============================
 # Streamlit UI (2-step wizard, no graphs)
