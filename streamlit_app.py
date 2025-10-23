@@ -446,12 +446,8 @@ else:
 
         # Define the tooltip text once
         loop_help = (
-            "A 'loop' means the task had to repeat that role’s work "
-            "because of missing or insufficient information.\n\n"
-            "- Front Desk loops: missing info before routing onward.\n"
-            "- Nurse loops: sent back for clarification, then rechecked.\n"
-            "- Provider / Back Office loops: rework before final resolution."
-        )
+            "A 'loop' means the task had to repeat that role’s work because of missing or insufficient information.\n\n"
+       )
 
         # Display table with tooltips
         c1, c2 = st.columns([1, 2])
@@ -496,11 +492,6 @@ else:
                 }),
                 use_container_width=True
             )
-
-        st.caption(
-            "ℹ️ Hover over the **Loops** title for an explanation. "
-            "Utilizations represent the fraction of staff time spent busy during clinic open hours."
-        )
-
+            
         # Persist if you ever want to export later
         st.session_state["results"] = dict(metrics_table=True)
