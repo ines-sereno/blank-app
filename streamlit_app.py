@@ -254,9 +254,11 @@ def monitor(env, s: CHCSystem):
 # FLOW DIAGRAMS
 # =============================
 def render_static_flow():
+    import graphviz
     dot = graphviz.Digraph()
     dot.attr(rankdir="LR", fontsize="12")
 
+    # Nodes
     dot.node("A", "Arrivals")
     dot.node("FD", "Front Desk")
     dot.node("NR", "Nurse")
@@ -265,12 +267,13 @@ def render_static_flow():
     dot.node("BO", "Back Office")
     dot.node("DONE", "Resolved")
 
-    dot.edges(["AFD"])  # A -> FD
+    # Edges
+    dot.edge("A", "FD")                                  # A -> FD
     dot.edge("FD", "DONE", label="Admin resolve")
-    dot.edge("FD", "NR", label="Else → Nurse")
-    dot.edge("NR", "NP", label="Protocol")
-    dot.edge("NR", "PR", label="Non-protocol")
-    dot.edge("PR", "BO", label="Some cases")
+    dot.edge("FD", "NR",   label="Else → Nurse")
+    dot.edge("NR", "NP",   label="Protocol")
+    dot.edge("NR", "PR",   label="Non-protocol")
+    dot.edge("PR", "BO",   label="Some cases")
     dot.edge("PR", "DONE", label="Most resolve")
     dot.edge("BO", "DONE", label="Finalize")
 
