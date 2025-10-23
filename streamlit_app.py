@@ -438,17 +438,17 @@ else:
             ]
         })
 
-        st.markdown("### Simulation Metrics")
+    st.markdown("### Simulation Metrics")
 
-        # Add an info tooltip
-        st.markdown("""
-            #### Loops ℹ️
-            Each **loop** means a task had to be reworked at that stage because of missing information or insufficient detail.  
-            They’re counted whenever the workflow repeats that role’s service (e.g., Front Desk → Nurse → back to Front Desk).  
-            - Front Desk loops: Missing or incomplete info before routing onward  
-            - Nurse loops: Returned for clarification and rechecked  
-            - Provider / Back Office loops: Rework before final resolution
-        """)
+    # Add an info tooltip
+    st.markdown("""
+        #### Loops ℹ️
+        Each **loop** means a task had to be reworked at that stage because of missing information or insufficient detail.  
+        They’re counted whenever the workflow repeats that role’s service (e.g., Front Desk → Nurse → back to Front Desk).  
+        - Front Desk loops: Missing or incomplete info before routing onward  
+        - Nurse loops: Returned for clarification and rechecked  
+        - Provider / Back Office loops: Rework before final resolution
+    """)
 
     st.dataframe(df_kpis, use_container_width=True)
 
