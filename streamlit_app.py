@@ -412,47 +412,66 @@ else:
         util_bo = metrics.service_time_sum["Back Office"] / max(1, denom_bo)
         util_overall = np.mean([util_fd, util_nu, util_pr, util_bo])
 
-        # Build the neat KPI table ONLY with what you asked for
-        df_kpis = pd.DataFrame({
-            "Metric": [
-                "Provider Utilization",
-                "Front Desk Utilization",
-                "Nurse Utilization",
-                "Back Office Utilization",
-                "Overall Utilization",
-                "Front Desk Loops",
-                "Nurse Loops",
-                "Provider Loops",
-                "Back Office Loops",
-            ],
-            "Value": [
-                pct(min(1.0, util_pr)),
-                pct(min(1.0, util_fd)),
-                pct(min(1.0, util_nu)),
-                pct(min(1.0, util_bo)),
-                pct(min(1.0, util_overall)),
-                metrics.loop_fd_insufficient,
-                metrics.loop_nurse_insufficient,
-                metrics.loop_provider_insufficient,
-                metrics.loop_backoffice_insufficient,
-            ]
-        })
+        # ---- Create the metrics table ----
+        st.markdown("### Simulation Metrics")
 
-    st.markdown("### Simulation Metrics")
+        # Define the tooltip text once
+        loop_help = (
+            "A 'loop' means the task had to repeat that role’s work "
+            "because of missing or insufficient information.\n\n"
+            "- Front Desk loops: missing info before routing onward.\n"
+            "- Nurse loops: sent back for clarification, then rechecked.\n"
+            "- Provider / Back Office loops: rework before final resolution."
+        )
 
-    # Add an info tooltip
-    st.markdown("""
-        #### Loops ℹ️
-        Each **loop** means a task had to be reworked at that stage because of missing information or insufficient detail.  
-        They’re counted whenever the workflow repeats that role’s service (e.g., Front Desk → Nurse → back to Front Desk).  
-        - Front Desk loops: Missing or incomplete info before routing onward  
-        - Nurse loops: Returned for clarification and rechecked  
-        - Provider / Back Office loops: Rework before final resolution
-    """)
+        # Display table with tooltips
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.markdown("#### Utilization (%)")
+            st.dataframe(
+                pd.DataFrame({
+                    "Role": [
+                        "Provider",
+                        "Front Desk",
+                        "Nurse",
+                        "Back Office",
+                        "Overall"
+                    ],
+                    "Utilization": [
+                        pct(min(1.0, util_pr)),
+                        pct(min(1.0, util_fd)),
+                        pct(min(1.0, util_nu)),
+                        pct(min(1.0, util_bo)),
+                        pct(min(1.0, util_overall)),
+                    ]
+                }),
+                use_container_width=True
+            )
 
-    st.dataframe(df_kpis, use_container_width=True)
+        with c2:
+            st.markdown("#### Loops ", help=loop_help)
+            st.dataframe(
+                pd.DataFrame({
+                    "Role": [
+                        "Front Desk",
+                        "Nurse",
+                        "Provider",
+                        "Back Office"
+                    ],
+                    "Loop Count": [
+                        metrics.loop_fd_insufficient,
+                        metrics.loop_nurse_insufficient,
+                        metrics.loop_provider_insufficient,
+                        metrics.loop_backoffice_insufficient,
+                    ]
+                }),
+                use_container_width=True
+            )
 
-    st.caption("Note: Loop counts are total occurrences across all simulated tasks.")
+        st.caption(
+            "ℹ️ Hover over the **Loops** title for an explanation. "
+            "Utilizations represent the fraction of staff time spent busy during clinic open hours."
+        )
 
-    # Persist the last results (if you want to export later)
-    st.session_state["results"] = dict(df_kpis=df_kpis)
+        # Persist if you ever want to export later
+        st.session_state["results"] = dict(metrics_table=True)
