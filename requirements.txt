@@ -5,3 +5,4 @@ matplotlib
 pandas
 altair
 graphviz
+plotly
