@@ -454,5 +454,5 @@ else:
 
     st.caption("Note: Loop counts are total occurrences across all simulated tasks.")
 
-        # Persist the last results (if you want to export later)
-        st.session_state["results"] = dict(df_kpis=df_kpis)
+    # Persist the last results (if you want to export later)
+    st.session_state["results"] = dict(df_kpis=df_kpis)
