@@ -390,23 +390,7 @@ if st.session_state.wizard_step == 1:
     When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
     """)
 
-    with st.form("design_form", clear_on_submit=False):
-        c1, c2 = st.columns([1,1])
-        with c1:
-            sim_days = st.number_input(
-                "Days to simulate", min_value=1, max_value=30, value=5, step=1, format="%d",
-                help="Number of 24-hour days to include in the simulation."
-            )
-            open_hours = st.number_input(
-                "Hours open per day", min_value=1, max_value=24, value=10, step=1, format="%d",
-                help="Clinic operating hours per day during which work can be performed."
-            )
-            cv_speed = st.slider(
-                "Task speed variability (CV)", 0.0, 0.8, 0.25, 0.05,
-                help="How variable individual task times are around their mean (coefficient of variation)."
-            )
-        with c2:
-            st.markdown("**Staffing (on duty)**")
+    st.markdown("**Staffing (on duty)**")
             fd_cap = st.number_input(
                 "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
                 help="Number of front desk staff simultaneously available."
@@ -423,11 +407,26 @@ if st.session_state.wizard_step == 1:
                 "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
                 help="Number of back-office staff on duty."
             )
+    fd_off = (fd_cap == 0)
+    nu_off = (nurse_cap == 0)
+    pr_off = (provider_cap == 0)
+    bo_off = (bo_cap == 0)
 
-        fd_off = (fd_cap == 0)
-        nu_off = (nurse_cap == 0)
-        pr_off = (provider_cap == 0)
-        bo_off = (bo_cap == 0)
+    with st.form("design_form", clear_on_submit=False):
+        c1, c2 = st.columns([1,1])
+        with c1:
+            sim_days = st.number_input(
+                "Days to simulate", min_value=1, max_value=30, value=5, step=1, format="%d",
+                help="Number of 24-hour days to include in the simulation."
+            )
+            open_hours = st.number_input(
+                "Hours open per day", min_value=1, max_value=24, value=10, step=1, format="%d",
+                help="Clinic operating hours per day during which work can be performed."
+            )
+            cv_speed = st.slider(
+                "Task speed variability (CV)", 0.0, 0.8, 0.25, 0.05,
+                help="How variable individual task times are around their mean (coefficient of variation)."
+            )
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
