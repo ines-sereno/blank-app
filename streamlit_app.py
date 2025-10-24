@@ -489,13 +489,13 @@ if st.session_state.wizard_step == 1:
                                               help="Chance a Provider needs to rework the same task.",
                                               disabled=pr_off)
                 max_provider_loops = st.slider("Max Provider loops", 0, 10, 1, 1,
-                                               help="Maximum number of Provider rework loops per task."
+                                               help="Maximum number of Provider rework loops per task.",
                                                disabled=pr_off)
                 provider_loop_delay = st.slider("Provider loop delay (min)", 0.0, 240.0, 15.0, 5.0,
                                                 help="Delay before provider rework can occur.",
                                                 disabled=pr_off)
                 p_backoffice_insuff = st.slider("Back Office loop chance", 0.0, 0.6, 0.00, 0.01,
-                                                help="Chance Back Office needs to rework the same task."
+                                                help="Chance Back Office needs to rework the same task.",
                                                 disabled=bo_off)
                 max_backoffice_loops = st.slider("Max Back Office loops", 0, 10, 1, 1,
                                                  help="Maximum number of Back Office rework loops per task.",
