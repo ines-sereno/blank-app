@@ -6,7 +6,6 @@ import math
 import pandas as pd
 from typing import Dict, List
 import locale
-locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 # =============================
 # Utilities
@@ -442,6 +441,7 @@ if st.session_state.wizard_step == 1:
             st.markdown("#### Interaction matrix (routing) — rows normalized automatically")
             st.caption("For each role, set probabilities of sending the task to another role or Done.")
             route = {}
+            
             def route_row_ui(from_role: str, defaults: Dict[str, float]):
                 st.markdown(f"**{from_role} →**")
                 c1, c2, c3, c4, c5 = st.columns(5)
