@@ -345,15 +345,14 @@ def go_back():
 
 # --- Locale-agnostic probability input (always dot-decimal) ---
 def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None) -> float:
-    # Show as a text input, always seeded as dot-decimal
-    raw = st.text_input(label, value=f"{float(default):.2f}", help=help, key=key)
-    # Normalize commas to dots, clamp to [0,1], and fall back on default if parse fails
-    try:
-        v = float(str(raw).replace(",", "."))
-    except Exception:
-        v = float(default)
-    v = max(0.0, min(1.0, v))
-    # Tiny echo showing normalized value in dot format
+    """Probability input that updates immediately and enforces dot-decimal style."""
+    v = st.number_input(
+        label,
+        min_value=0.0, max_value=1.0,
+        value=float(default),
+        step=0.01, format="%.2f",
+        help=help, key=key
+    )
     st.caption(f"{v:.2f}")
     return v
 
