@@ -344,7 +344,13 @@ def go_back():
     st.session_state.wizard_step = max(1, st.session_state.wizard_step - 1)
 
 # --- Locale-agnostic probability input (always dot-decimal) ---
-def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None, disabled: bool = False) -> float:
+def prob_input(
+    label: str,
+    key: str,
+    default: float = 0.0,
+    help: str | None = None,
+    disabled: bool = False,
+) -> float:
     """Probability input for use inside st.form; no Enter needed, dot-decimal enforced on read."""
     if key not in st.session_state:
         st.session_state[key] = f"{float(default):.2f}"
@@ -354,14 +360,14 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
         value=st.session_state[key],
         key=key,
         help=help,
-        disabled=disabled,   # <— important
+        disabled=disabled,   # <-- important
     )
     try:
         val = float(str(raw).replace(",", "."))
     except ValueError:
         val = float(default)
     val = max(0.0, min(1.0, val))
-    st.caption(f"{val:.2f}" if not disabled else "— disabled (set staffing > 0)")
+    st.caption(f"{val:.2f}")
     return val
 
 
@@ -510,62 +516,63 @@ if st.session_state.wizard_step == 1:
 
             route: Dict[str, Dict[str, float]] = {}
 
-            def route_row_ui(from_role: str, defaults: Dict[str, float]) -> Dict[str, float]:
-                st.markdown(f"**{from_role} →**")
-                c1, c2, c3, c4, c5 = st.columns(5)
-                with c1:
-                    to_fd = prob_input(
-                        f"to FD ({from_role})",
-                        key=f"r_{from_role}_fd",
-                        default=float(defaults.get("Front Desk", 0.2)),
-                        help="Probability to route next to Front Desk.",
-                        disabled=disabled
-                    )
-                with c2:
-                    to_nu = prob_input(
-                        f"to Nurse ({from_role})",
-                        key=f"r_{from_role}_nu",
-                        default=float(defaults.get("Nurse", 0.4)),
-                        help="Probability to route next to Nurse/MA.",
-                        disabled=disabled
-                    )
-                with c3:
-                    to_pr = prob_input(
-                        f"to Provider ({from_role})",
-                        key=f"r_{from_role}_pr",
-                        default=float(defaults.get("Provider", 0.2)),
-                        help="Probability to route next to Provider.",
-                        disabled=disabled
-                    )
-                with c4:
-                    to_bo = prob_input(
-                        f"to Back Office ({from_role})",
-                        key=f"r_{from_role}_bo",
-                        default=float(defaults.get("Back Office", 0.5)),
-                        help="Probability to route next to Back Office.",
-                        disabled=disabled
-                    )
-                with c5:
-                    to_done = prob_input(
-                        f"to Done ({from_role})",
-                        key=f"r_{from_role}_done",
-                        default=float(defaults.get(DONE, 0.2)),
-                        help="Probability the task finishes after this role.",
-                        disabled=disabled
-                    )
-                return {
-                    "Front Desk": to_fd,
-                    "Nurse": to_nu,
-                    "Provider": to_pr,
-                    "Back Office": to_bo,
-                    DONE: to_done,
-                }
+            def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
+            st.markdown(f"**{from_role} →**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1:
+                to_fd = prob_input(
+                    f"to FD ({from_role})",
+                    key=f"r_{from_role}_fd",
+                    default=float(defaults.get("Front Desk", 0.2)),
+                    help="Probability to route next to Front Desk.",
+                    disabled=disabled,
+                 )
+            with c2:
+                to_nu = prob_input(
+                    f"to Nurse ({from_role})",
+                    key=f"r_{from_role}_nu",
+                    default=float(defaults.get("Nurse", 0.4)),
+                    help="Probability to route next to Nurse/MA.",
+                    disabled=disabled,
+                )
+            with c3:
+                to_pr = prob_input(
+                    f"to Provider ({from_role})",
+                    key=f"r_{from_role}_pr",
+                    default=float(defaults.get("Provider", 0.2)),
+                    help="Probability to route next to Provider.",
+                    disabled=disabled,
+                )
+            with c4:
+                to_bo = prob_input(
+                    f"to Back Office ({from_role})",
+                    key=f"r_{from_role}_bo",
+                    default=float(defaults.get("Back Office", 0.5)),
+                    help="Probability to route next to Back Office.",
+                    disabled=disabled,
+                )
+            with c5:
+                to_done = prob_input(
+                    f"to Done ({from_role})",
+                    key=f"r_{from_role}_done",
+                    default=float(defaults.get(DONE, 0.2)),
+                    help="Probability the task finishes after this role.",
+                    disabled=disabled,
+                )
+            return {
+                "Front Desk": to_fd,
+                "Nurse": to_nu,
+                "Provider": to_pr,
+                "Back Office": to_bo,
+                DONE: to_done,
+            }
+
 
             # sensible loose defaults – calls must be OUTSIDE the function
-            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
-            route["Nurse"]      = route_row_ui("Nurse",      {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
-            route["Provider"]   = route_row_ui("Provider",   {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
-            route["Back Office"]= route_row_ui("Back Office",{DONE: 1.0}, disabled=bo_off)
+            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
+            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
+            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
+            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0}, disabled=bo_off)
 
         # --- Save button INSIDE the form ---
         saved = st.form_submit_button("Save", use_container_width=True)
