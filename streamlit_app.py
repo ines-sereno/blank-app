@@ -342,6 +342,9 @@ def go_back():
 if st.session_state.wizard_step == 1:
     st.subheader("Step 1 — Design your clinic")
 
+    if "design_saved" not in st.session_state:
+    st.session_state.design_saved = False
+
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
         with c1:
@@ -443,19 +446,19 @@ if st.session_state.wizard_step == 1:
                 st.markdown(f"**{from_role} →**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 with c1:
-                    to_fd = st.number_input(f"to FD ({from_role})", 0.0, 1.0, defaults.get("Front Desk", 0.0), 0.05,
+                    to_fd = st.number_input(f"to FD ({from_role})", 0.0, 1.0, defaults.get("Front Desk", 0.0), 0.05, format="%.2f",
                                             help="Probability to route next to Front Desk.", key=f"r_{from_role}_fd")
                 with c2:
-                    to_nu = st.number_input(f"to Nurse ({from_role})", 0.0, 1.0, defaults.get("Nurse", 0.0), 0.05,
+                    to_nu = st.number_input(f"to Nurse ({from_role})", 0.0, 1.0, defaults.get("Nurse", 0.0), 0.05, format="%.2f",
                                             help="Probability to route next to Nurse/MA.", key=f"r_{from_role}_nu")
                 with c3:
-                    to_pr = st.number_input(f"to Provider ({from_role})", 0.0, 1.0, defaults.get("Provider", 0.0), 0.05,
+                    to_pr = st.number_input(f"to Provider ({from_role})", 0.0, 1.0, defaults.get("Provider", 0.0), 0.05, format="%.2f",
                                             help="Probability to route next to Provider.", key=f"r_{from_role}_pr")
                 with c4:
-                    to_bo = st.number_input(f"to Back Office ({from_role})", 0.0, 1.0, defaults.get("Back Office", 0.0), 0.05,
+                    to_bo = st.number_input(f"to Back Office ({from_role})", 0.0, 1.0, defaults.get("Back Office", 0.0), 0.05, format="%.2f",
                                             help="Probability to route next to Back Office.", key=f"r_{from_role}_bo")
                 with c5:
-                    to_done = st.number_input(f"to Done ({from_role})", 0.0, 1.0, defaults.get(DONE, 0.0), 0.05,
+                    to_done = st.number_input(f"to Done ({from_role})", 0.0, 1.0, defaults.get(DONE, 0.0), 0.05, format="%.2f",
                                               help="Probability the task finishes after this role.", key=f"r_{from_role}_done")
                 route[from_role] = {"Front Desk": to_fd, "Nurse": to_nu, "Provider": to_pr, "Back Office": to_bo, DONE: to_done}
 
@@ -465,26 +468,30 @@ if st.session_state.wizard_step == 1:
             route_row_ui("Provider", {"Back Office": 0.2, DONE: 0.8})
             route_row_ui("Back Office", {DONE: 1.0})
 
-        submitted = st.form_submit_button("Continue →", use_container_width=True)
-        if submitted:
+        # Two separate actions: Save, then Continue
+        save_clicked = st.form_submit_button("Save", use_container_width=True)
+        continue_clicked = st.form_submit_button("Continue →", use_container_width=True, disabled=not st.session_state.design_saved)
+
+        if save_clicked or continue_clicked:
             open_minutes = int(open_hours * MIN_PER_HOUR)
             sim_minutes = int(sim_days * DAY_MIN)
 
+            # build and store the design dict exactly as before
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes,
                 open_minutes=open_minutes,
                 # staffing
                 frontdesk_cap=fd_cap, nurse_cap=nurse_cap, provider_cap=provider_cap, backoffice_cap=bo_cap,
-                # arrivals by role (integers)
+                # arrivals by role (integers) — if you have them; otherwise keep your existing arrivals fields
                 arrivals_per_hour_by_role={
-                    "Front Desk": int(arr_fd),
-                    "Nurse": int(arr_nu),
-                    "Provider": int(arr_pr),
-                    "Back Office": int(arr_bo),
-                },
-                # service
+                    "Front Desk": int(arr_fd) if "arr_fd" in locals() else 0,
+                    "Nurse":      int(arr_nu) if "arr_nu" in locals() else 0,
+                    "Provider":   int(arr_pr) if "arr_pr" in locals() else 0,
+                    "Back Office":int(arr_bo) if "arr_bo" in locals() else 0,
+                } if "arr_fd" in locals() else st.session_state.get("design", {}).get("arrivals_per_hour_by_role", {}),
+                # service + dist + overheads
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
-                svc_provider=svc_provider, svc_backoffice=svc_backoffice,
+                svc_provider=svc_provider,   svc_backoffice=svc_backoffice,
                 dist_role={"Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential","Provider":"exponential","Back Office":"exponential"},
                 cv_speed=cv_speed,
                 emr_overhead={"Front Desk":0.5,"Nurse":0.5,"NurseProtocol":0.5,"Provider":0.5,"Back Office":0.5},
@@ -493,12 +500,18 @@ if st.session_state.wizard_step == 1:
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
                 p_provider_insuff=p_provider_insuff, max_provider_loops=max_provider_loops, provider_loop_delay=provider_loop_delay,
                 p_backoffice_insuff=p_backoffice_insuff, max_backoffice_loops=max_backoffice_loops, backoffice_loop_delay=backoffice_loop_delay,
-                # nurse protocol
-                p_protocol=p_protocol,
-                # routing matrix
-                route_matrix=route
+                # routing matrix & protocol if present in your UI
+                p_protocol=p_protocol if "p_protocol" in locals() else 0.40,
+                route_matrix=route if "route" in locals() else st.session_state.get("design", {}).get("route_matrix", {})
             )
-            go_next()
+
+            # Mark as saved
+            st.session_state.design_saved = True
+            st.success("Configuration saved.")
+
+            # Only advance if user clicked Continue and it’s saved
+            if continue_clicked and st.session_state.design_saved:
+                go_next()
 
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
@@ -531,43 +544,45 @@ elif st.session_state.wizard_step == 2:
         env.run(until=p["sim_minutes"])
 
         # Utilizations (open-time adjusted)
+
+        # ---- Utilizations (open-time adjusted) ----
         open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
         denom = {
             "Front Desk": max(1, p["frontdesk_cap"]) * open_time_available,
-            "Nurse": max(1, p["nurse_cap"]) * open_time_available,
-            "Provider": max(1, p["provider_cap"]) * open_time_available,
-            "Back Office": max(1, p["backoffice_cap"]) * open_time_available,
+            "Nurse":      max(1, p["nurse_cap"])      * open_time_available,
+            "Provider":   max(1, p["provider_cap"])   * open_time_available,
+            "Back Office":max(1, p["backoffice_cap"]) * open_time_available,
         }
-        util = {r: metrics.service_time_sum[r] / max(1, denom[r]) for r in ROLES}
+        util = {r: metrics.service_time_sum[r] / max(1, denom[r]) for r in ["Front Desk","Nurse","Provider","Back Office"]}
         util_overall = np.mean(list(util.values()))
 
-        # ---- Tables only (no graphs) ----
-        st.markdown("### Simulation Metrics")
+        # Only show roles with capacity > 0
+        active_roles_caps = [
+            ("Provider",    p["provider_cap"]),
+            ("Front Desk",  p["frontdesk_cap"]),
+            ("Nurse",       p["nurse_cap"]),
+            ("Back Office", p["backoffice_cap"]),
+        ]
+        active_roles = [r for r, cap in active_roles_caps if cap > 0]
 
-        util_df = pd.DataFrame({
-            "Role": ["Provider", "Front Desk", "Nurse", "Back Office", "Overall"],
-            "Utilization": [
-                pct(min(1.0, util["Provider"])),
-                pct(min(1.0, util["Front Desk"])),
-                pct(min(1.0, util["Nurse"])),
-                pct(min(1.0, util["Back Office"])),
-                pct(min(1.0, util_overall))
-            ]
-        })
+        # Utilization table (filtered)
+        util_rows = [{"Role": r, "Utilization": pct(min(1.0, util[r]))} for r in active_roles]
+        util_rows.append({"Role": "Overall", "Utilization": pct(min(1.0, util_overall))})
+        util_df = pd.DataFrame(util_rows)
 
-        loop_help = (
-            "A 'loop' is a rework cycle at that role caused by missing or insufficient information."
+        # Loops table (filtered)
+        loop_help = "A 'loop' is a rework cycle at that role caused by missing or insufficient information."
+        loop_counts = {
+            "Front Desk":  metrics.loop_fd_insufficient,
+            "Nurse":       metrics.loop_nurse_insufficient,
+            "Provider":    metrics.loop_provider_insufficient,
+            "Back Office": metrics.loop_backoffice_insufficient,
+        }
+        loop_df = pd.DataFrame(
+            [{"Role": r, "Loop Count": loop_counts[r]} for r in active_roles if r in loop_counts]
         )
-        loop_df = pd.DataFrame({
-            "Role": ["Front Desk", "Nurse", "Provider", "Back Office"],
-            "Loop Count": [
-                metrics.loop_fd_insufficient,
-                metrics.loop_nurse_insufficient,
-                metrics.loop_provider_insufficient,
-                metrics.loop_backoffice_insufficient,
-            ]
-        })
 
+        # ---- Render tables ----
         c1, c2 = st.columns([1,1])
         with c1:
             st.markdown("#### Utilization (%)")
@@ -575,6 +590,7 @@ elif st.session_state.wizard_step == 2:
         with c2:
             st.markdown("#### Loops ", help=loop_help)
             st.dataframe(loop_df, use_container_width=True)
+
 
         # Persist minimal results
         st.session_state["results"] = dict(util_df=util_df, loop_df=loop_df)
