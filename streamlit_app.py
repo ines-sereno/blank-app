@@ -164,10 +164,13 @@ class CHCSystem:
         remaining = draw_service_time(role_for_dist, mean_time, self.p["dist_role"], self.p["cv_speed"])
         remaining += max(0.0, self.p["emr_overhead"].get(role_account, 0.0))
 
+        # micro-optimization: local reference
+        open_minutes = self.p["open_minutes"]
+
         while remaining > 1e-9:
-            if not is_open(self.env.now, self.p["open_minutes"]):
-                yield self.env.timeout(minutes_until_open(self.env.now, self.p["open_minutes"]))
-            window = minutes_until_close(self.env.now, self.p["open_minutes"])
+            if not is_open(self.env.now, open_minutes):
+                yield self.env.timeout(minutes_until_open(self.env.now, open_minutes))
+            window = minutes_until_close(self.env.now, open_minutes)
             work_chunk = min(remaining, window)
             with resource.request() as req:
                 t_req = self.env.now
@@ -183,8 +186,8 @@ class CHCSystem:
 # =============================
 def sample_next_role(route_row: Dict[str, float]) -> str:
     """Normalize a row and sample next step from ROLES + DONE."""
-    keys = list(route_row.keys())
-    vals = np.array([max(0.0, float(route_row[k])) for k in keys], dtype=float)
+    keys = tuple(route_row.keys())
+    vals = np.fromiter((max(0.0, float(route_row[k])) for k in keys), dtype=float)
     s = vals.sum()
     if s <= 0:
         return DONE
@@ -350,7 +353,7 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     except Exception:
         v = float(default)
     v = max(0.0, min(1.0, v))
-    # Optional tiny echo showing normalized value in dot format
+    # Tiny echo showing normalized value in dot format
     st.caption(f"{v:.2f}")
     return v
 
@@ -451,62 +454,63 @@ if st.session_state.wizard_step == 1:
                 backoffice_loop_delay = st.slider("Back Office loop delay (min)", 0.0, 240.0, 15.0, 5.0,
                                                   help="Delay before back-office rework can occur.")
 
+            # ----- Interaction matrix (routing) -----
             st.markdown("#### Interaction matrix (routing) — rows normalized automatically")
             st.caption("For each role, set probabilities of sending the task to another role or Done.")
-            route = {}
 
-        def route_row_ui(from_role: str, defaults: Dict[str, float]):
-            st.markdown(f"**{from_role} →**")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            with c1:
-                to_fd = prob_input(
-                    f"to FD ({from_role})",
-                    key=f"r_{from_role}_fd",
-                    default=float(defaults.get("Front Desk", 0.0)),
-                    help="Probability to route next to Front Desk."
-                )
-            with c2:
-                to_nu = prob_input(
-                    f"to Nurse ({from_role})",
-                    key=f"r_{from_role}_nu",
-                    default=float(defaults.get("Nurse", 0.0)),
-                    help="Probability to route next to Nurse/MA."
-                )
-            with c3:
-                to_pr = prob_input(
-                    f"to Provider ({from_role})",
-                    key=f"r_{from_role}_pr",
-                    default=float(defaults.get("Provider", 0.0)),
-                    help="Probability to route next to Provider."
-                )
-            with c4:
-                to_bo = prob_input(
-                    f"to Back Office ({from_role})",
-                    key=f"r_{from_role}_bo",
-                    default=float(defaults.get("Back Office", 0.0)),
-                    help="Probability to route next to Back Office."
-                )
-            with c5:
-                to_done = prob_input(
-                    f"to Done ({from_role})",
-                    key=f"r_{from_role}_done",
-                    default=float(defaults.get(DONE, 0.0)),
-                    help="Probability the task finishes after this role."
-                )
-    
-            route[from_role] = {
-                "Front Desk": to_fd,
-                "Nurse": to_nu,
-                "Provider": to_pr,
-                "Back Office": to_bo,
-                DONE: to_done,
-            }        
+            route: Dict[str, Dict[str, float]] = {}
 
-            # sensible loose defaults
-            route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4})
-            route_row_ui("Nurse", {"Provider": 0.5, DONE: 0.5})
-            route_row_ui("Provider", {"Back Office": 0.2, DONE: 0.8})
-            route_row_ui("Back Office", {DONE: 1.0})
+            def route_row_ui(from_role: str, defaults: Dict[str, float]) -> Dict[str, float]:
+                st.markdown(f"**{from_role} →**")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                with c1:
+                    to_fd = prob_input(
+                        f"to FD ({from_role})",
+                        key=f"r_{from_role}_fd",
+                        default=float(defaults.get("Front Desk", 0.0)),
+                        help="Probability to route next to Front Desk."
+                    )
+                with c2:
+                    to_nu = prob_input(
+                        f"to Nurse ({from_role})",
+                        key=f"r_{from_role}_nu",
+                        default=float(defaults.get("Nurse", 0.0)),
+                        help="Probability to route next to Nurse/MA."
+                    )
+                with c3:
+                    to_pr = prob_input(
+                        f"to Provider ({from_role})",
+                        key=f"r_{from_role}_pr",
+                        default=float(defaults.get("Provider", 0.0)),
+                        help="Probability to route next to Provider."
+                    )
+                with c4:
+                    to_bo = prob_input(
+                        f"to Back Office ({from_role})",
+                        key=f"r_{from_role}_bo",
+                        default=float(defaults.get("Back Office", 0.0)),
+                        help="Probability to route next to Back Office."
+                    )
+                with c5:
+                    to_done = prob_input(
+                        f"to Done ({from_role})",
+                        key=f"r_{from_role}_done",
+                        default=float(defaults.get(DONE, 0.0)),
+                        help="Probability the task finishes after this role."
+                    )
+                return {
+                    "Front Desk": to_fd,
+                    "Nurse": to_nu,
+                    "Provider": to_pr,
+                    "Back Office": to_bo,
+                    DONE: to_done,
+                }
+
+            # sensible loose defaults – calls must be OUTSIDE the function
+            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4})
+            route["Nurse"]      = route_row_ui("Nurse",      {"Provider": 0.5, DONE: 0.5})
+            route["Provider"]   = route_row_ui("Provider",   {"Back Office": 0.2, DONE: 0.8})
+            route["Back Office"]= route_row_ui("Back Office",{DONE: 1.0})
 
         # --- Save button INSIDE the form ---
         saved = st.form_submit_button("Save", use_container_width=True)
@@ -584,8 +588,6 @@ elif st.session_state.wizard_step == 2:
         env.process(monitor(env, system))
         env.run(until=p["sim_minutes"])
 
-        # Utilizations (open-time adjusted)
-
         # ---- Utilizations (open-time adjusted) ----
         open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
         denom = {
@@ -631,7 +633,6 @@ elif st.session_state.wizard_step == 2:
         with c2:
             st.markdown("#### Loops ", help=loop_help)
             st.dataframe(loop_df, use_container_width=True)
-
 
         # Persist minimal results
         st.session_state["results"] = dict(util_df=util_df, loop_df=loop_df)
