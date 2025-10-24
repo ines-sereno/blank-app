@@ -615,7 +615,7 @@ def normalize_params(p: dict) -> dict:
 
 
 # -------- STEP 2: RUN & RESULTS --------
-else:
+elif:
     st.subheader("Step 2 — Run & Results")
     st.button("← Back to Design", on_click=go_back)
 
