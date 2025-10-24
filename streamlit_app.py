@@ -339,6 +339,20 @@ def go_next():
 def go_back():
     st.session_state.wizard_step = max(1, st.session_state.wizard_step - 1)
 
+# --- Locale-agnostic probability input (always dot-decimal) ---
+def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None) -> float:
+    # Show as a text input, always seeded as dot-decimal
+    raw = st.text_input(label, value=f"{float(default):.2f}", help=help, key=key)
+    # Normalize commas to dots, clamp to [0,1], and fall back on default if parse fails
+    try:
+        v = float(str(raw).replace(",", "."))
+    except Exception:
+        v = float(default)
+    v = max(0.0, min(1.0, v))
+    # Optional tiny echo showing normalized value in dot format
+    st.caption(f"{v:.2f}")
+    return v
+
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
 
