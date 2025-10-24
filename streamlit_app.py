@@ -367,6 +367,22 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
 
 
 # -------- STEP 1: DESIGN --------
+st.markdown("""
+### 🏥 **Design Your Clinic**
+
+This tool simulates how tasks flow through a Community Health Center (CHC) using a **Discrete-Event Simulation (DES)** model.  
+Each task represents a patient request or administrative action that moves through roles like the **Front Desk**, **Nurse/MA**, **Provider**, and **Back Office**.
+
+The simulation models:
+- **Arrivals** — how frequently tasks enter the system at each role.  
+- **Service times** — how long each role takes to complete its part.  
+- **Routing probabilities** — how likely tasks are to move between roles or be completed.  
+- **Rework loops** — when tasks must be repeated due to missing or incorrect information.  
+
+You can customize your clinic’s staffing levels, arrival rates, and workflow logic below.  
+When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
+""")
+
 if st.session_state.wizard_step == 1:
 
     with st.form("design_form", clear_on_submit=False):
