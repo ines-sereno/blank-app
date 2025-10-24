@@ -440,7 +440,7 @@ if st.session_state.wizard_step == 1:
             st.caption("For each role, set probabilities of sending the task to another role or Done.")
             route = {}
 
-            def route_row_ui(from_role: str, defaults: Dict[str, float]):
+        def route_row_ui(from_role: str, defaults: Dict[str, float]):
             st.markdown(f"**{from_role} →**")
             c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
