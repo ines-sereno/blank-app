@@ -4,8 +4,6 @@ import random
 import numpy as np
 import math
 import pandas as pd
-from typing import Dict, List
-import locale
 
 # =============================
 # Utilities
@@ -441,53 +439,53 @@ if st.session_state.wizard_step == 1:
             st.markdown("#### Interaction matrix (routing) — rows normalized automatically")
             st.caption("For each role, set probabilities of sending the task to another role or Done.")
             route = {}
-            
+
             def route_row_ui(from_role: str, defaults: Dict[str, float]):
-                st.markdown(f"**{from_role} →**")
-                c1, c2, c3, c4, c5 = st.columns(5)
-                with c1:
-                    to_fd = st.number_input(
-                        f"to FD ({from_role})", min_value=0.0, max_value=1.0,
-                        value=float(defaults.get("Front Desk", 0.0)),
-                        step=0.01, format="%.2f",
-                        help="Probability to route next to Front Desk.",
-                        key=f"r_{from_role}_fd"
-                    )
-                with c2:
-                    to_nu = st.number_input(
-                        f"to Nurse ({from_role})", min_value=0.0, max_value=1.0,
-                        value=float(defaults.get("Nurse", 0.0)),
-                        step=0.01, format="%.2f",
-                        help="Probability to route next to Nurse/MA.",
-                        key=f"r_{from_role}_nu"
-                    )
-                with c3:
-                    to_pr = st.number_input(
-                        f"to Provider ({from_role})", min_value=0.0, max_value=1.0,
-                        value=float(defaults.get("Provider", 0.0)),
-                        step=0.01, format="%.2f",
-                        help="Probability to route next to Provider.",
-                        key=f"r_{from_role}_pr"
-                    )
-                with c4:
-                    to_bo = st.number_input(
-                        f"to Back Office ({from_role})", min_value=0.0, max_value=1.0,
-                        value=float(defaults.get("Back Office", 0.0)),
-                        step=0.01, format="%.2f",
-                        help="Probability to route next to Back Office.",
-                        key=f"r_{from_role}_bo"
-                    )
-                with c5:
-                    to_done = st.number_input(
-                        f"to Done ({from_role})", min_value=0.0, max_value=1.0,
-                        value=float(defaults.get(DONE, 0.0)),
-                        step=0.01, format="%.2f",
-                        help="Probability the task finishes after this role.",
-                        key=f"r_{from_role}_done"
-                    )
-                route[from_role] = {
-                    "Front Desk": to_fd, "Nurse": to_nu, "Provider": to_pr, "Back Office": to_bo, DONE: to_done
-                }
+            st.markdown(f"**{from_role} →**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1:
+                to_fd = prob_input(
+                    f"to FD ({from_role})",
+                    key=f"r_{from_role}_fd",
+                    default=float(defaults.get("Front Desk", 0.0)),
+                    help="Probability to route next to Front Desk."
+                )
+            with c2:
+                to_nu = prob_input(
+                    f"to Nurse ({from_role})",
+                    key=f"r_{from_role}_nu",
+                    default=float(defaults.get("Nurse", 0.0)),
+                    help="Probability to route next to Nurse/MA."
+                )
+            with c3:
+                to_pr = prob_input(
+                    f"to Provider ({from_role})",
+                    key=f"r_{from_role}_pr",
+                    default=float(defaults.get("Provider", 0.0)),
+                    help="Probability to route next to Provider."
+                )
+            with c4:
+                to_bo = prob_input(
+                    f"to Back Office ({from_role})",
+                    key=f"r_{from_role}_bo",
+                    default=float(defaults.get("Back Office", 0.0)),
+                    help="Probability to route next to Back Office."
+                )
+            with c5:
+                to_done = prob_input(
+                    f"to Done ({from_role})",
+                    key=f"r_{from_role}_done",
+                    default=float(defaults.get(DONE, 0.0)),
+                    help="Probability the task finishes after this role."
+                )
+    
+            route[from_role] = {
+                "Front Desk": to_fd,
+                "Nurse": to_nu,
+                "Provider": to_pr,
+                "Back Office": to_bo,
+                DONE: to_done,
+            }        
 
             # sensible loose defaults
             route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4})
