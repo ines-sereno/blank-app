@@ -360,7 +360,7 @@ def prob_input(
         value=st.session_state[key],
         key=key,
         help=help,
-        disabled=disabled,   # <-- important
+        disabled=disabled,
     )
     try:
         val = float(str(raw).replace(",", "."))
@@ -390,37 +390,31 @@ if st.session_state.wizard_step == 1:
     When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
     """)
 
-    # --- Live (auto-updating) staffing controls OUTSIDE the form ---
-    st.markdown("**Staffing (on duty)**")
-    c_staff1, c_staff2, c_staff3, c_staff4 = st.columns(4)
-    with c_staff1:
+    # --- Staffing moved to SIDEBAR (live) ---
+    with st.sidebar:
+        st.header("Staffing (on duty)")
         fd_cap = st.number_input(
             "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
             help="Number of front desk staff simultaneously available."
         )
-    with c_staff2:
         nurse_cap = st.number_input(
             "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
             help="Number of nurses/medical assistants on duty."
         )
-    with c_staff3:
         provider_cap = st.number_input(
             "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
             help="Number of providers on duty."
         )
-    with c_staff4:
         bo_cap = st.number_input(
             "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
             help="Number of back-office staff on duty."
         )
 
-    # Compute “off” flags that will immediately disable dependent widgets
+    # Flags to grey out dependent controls instantly
     fd_off = (fd_cap == 0)
     nu_off = (nurse_cap == 0)
     pr_off = (provider_cap == 0)
     bo_off = (bo_cap == 0)
-    st.divider()
-
 
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
@@ -442,20 +436,20 @@ if st.session_state.wizard_step == 1:
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
             arr_fd = st.number_input("→ Front Desk", min_value=0, max_value=500, value=15, step=1, format="%d",
-                                     help="Average number of tasks arriving to the Front Desk each hour.", 
-                                    disabled=fd_off)
+                                     help="Average number of tasks arriving to the Front Desk each hour.",
+                                     disabled=fd_off)
         with cA2:
             arr_nu = st.number_input("→ Nurse / MAs", min_value=0, max_value=500, value=20, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Nurse/MA queue per hour.", 
-                                    disabled=nu_off)
+                                     help="Average number of tasks arriving directly to the Nurse/MA queue per hour.",
+                                     disabled=nu_off)
         with cA3:
             arr_pr = st.number_input("→ Provider", min_value=0, max_value=500, value=10, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Provider per hour.", 
-                                    disabled=pr_off)
+                                     help="Average number of tasks arriving directly to the Provider per hour.",
+                                     disabled=pr_off)
         with cA4:
             arr_bo = st.number_input("→ Back Office", min_value=0, max_value=500, value=5, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Back Office per hour.", 
-                                    disabled=bo_off)
+                                     help="Average number of tasks arriving directly to the Back Office per hour.",
+                                     disabled=bo_off)
 
         with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
             st.markdown("#### Service times (mean minutes)")
@@ -465,8 +459,8 @@ if st.session_state.wizard_step == 1:
                                           help="Average time to process a task at the Front Desk.",
                                           disabled=fd_off)
                 svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, 2.0, 0.5,
-                                        help="Average time when a task is handled entirely by standing nurse protocol.",
-                                       disabled=nu_off)
+                                               help="Average time when a task is handled entirely by standing nurse protocol.",
+                                               disabled=nu_off)
                 svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, 4.0, 0.5,
                                       help="Average time for a standard nurse/MA task (non-protocol).",
                                       disabled=nu_off)
@@ -575,13 +569,12 @@ if st.session_state.wizard_step == 1:
                     "Back Office": to_bo,
                     DONE: to_done,
                 }
-    
-        # sensible loose defaults – calls must be OUTSIDE the function (and still inside the expander)
-        route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
-        route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
-        route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
-        route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled=bo_off)
 
+            # 👇 Calls kept INSIDE the expander so routing stays under the dropdown
+            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
+            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
+            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
+            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled=bo_off)
 
         # --- Save button INSIDE the form ---
         saved = st.form_submit_button("Save", use_container_width=True)
@@ -594,7 +587,7 @@ if st.session_state.wizard_step == 1:
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes,
                 open_minutes=open_minutes,
-                # staffing
+                # staffing (from sidebar)
                 frontdesk_cap=fd_cap, nurse_cap=nurse_cap, provider_cap=provider_cap, backoffice_cap=bo_cap,
                 # arrivals by role (integers)
                 arrivals_per_hour_by_role={
