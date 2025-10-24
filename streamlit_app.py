@@ -403,25 +403,25 @@ if st.session_state.wizard_step == 1:
             st.markdown("**Staffing (on duty)**")
             fd_cap = st.number_input(
                 "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
-                help="Number of front desk staff simultaneously available.",
-                fd_off = (fd_cap == 0)
+                help="Number of front desk staff simultaneously available."
             )
             nurse_cap = st.number_input(
                 "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
-                help="Number of nurses/medical assistants on duty.",
-                nu_off = (nurse_cap == 0)
-
+                help="Number of nurses/medical assistants on duty."
             )
             provider_cap = st.number_input(
                 "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of providers on duty.",
-                pr_off = (provider_cap == 0)
+                help="Number of providers on duty."
             )
             bo_cap = st.number_input(
                 "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of back-office staff on duty.",
-                bo_off = (bo_cap == 0)
+                help="Number of back-office staff on duty."
             )
+
+        fd_off = (fd_cap == 0)
+        nu_off = (nurse_cap == 0)
+        pr_off = (provider_cap == 0)
+        bo_off = (bo_cap == 0)
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
