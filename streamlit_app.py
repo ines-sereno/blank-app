@@ -537,22 +537,22 @@ if st.session_state.wizard_step == 1:
             st.success("Design saved. Continue to run the simulation.")
             go_next()
 
-# --- Safe defaults for older saved designs / partial configs ---
-def normalize_params(p: dict) -> dict:
-    # Core lists / constants
-    ROLES = ["Front Desk", "Nurse", "Provider", "Back Office"]
-    DONE  = "Done"
+    # --- Safe defaults for older saved designs / partial configs ---
+    def normalize_params(p: dict) -> dict:
+        # Core lists / constants
+        ROLES = ["Front Desk", "Nurse", "Provider", "Back Office"]
+        DONE  = "Done"
 
-    # Arrivals-by-role (fallback to old single arrival rate → all to Front Desk)
-    if "arrivals_per_hour_by_role" not in p:
-        rate = float(p.get("arrivals_per_hour", 12.0))  # legacy knob if present
-        p["arrivals_per_hour_by_role"] = {
-            "Front Desk": rate, "Nurse": 0.0, "Provider": 0.0, "Back Office": 0.0
-        }
-    else:
-        # ensure all roles present
-        for r in ROLES:
-            p["arrivals_per_hour_by_role"].setdefault(r, 0.0)
+        # Arrivals-by-role (fallback to old single arrival rate → all to Front Desk)
+        if "arrivals_per_hour_by_role" not in p:
+            rate = float(p.get("arrivals_per_hour", 12.0))  # legacy knob if present
+            p["arrivals_per_hour_by_role"] = {
+                "Front Desk": rate, "Nurse": 0.0, "Provider": 0.0, "Back Office": 0.0
+            }
+        else:
+            # ensure all roles present
+            for r in ROLES:
+                p["arrivals_per_hour_by_role"].setdefault(r, 0.0)
 
     # Routing matrix (normalize later, but ensure presence & DONE column)
     if "route_matrix" not in p:
