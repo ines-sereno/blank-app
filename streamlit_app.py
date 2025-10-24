@@ -375,9 +375,9 @@ Each task represents a patient request or administrative action that moves throu
 
 The simulation models:
 - **Arrivals** — how frequently tasks enter the system at each role.  
-- **Service times** — how long each role takes to complete its part.  
-- **Routing probabilities** — how likely tasks are to move between roles or be completed.  
-- **Rework loops** — when tasks must be repeated due to missing or incorrect information.  
+- **Service times** — how long each role takes to complete its task.  
+- **Rework loops** — when tasks must be repeated due to missing or incorrect information.
+- **Routing probabilities** — how likely tasks are to move between roles or be completed.    
 
 You can customize your clinic’s staffing levels, arrival rates, and workflow logic below.  
 When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
@@ -419,7 +419,7 @@ if st.session_state.wizard_step == 1:
                 help="Number of back-office staff on duty."
             )
 
-        st.markdown("### Arrivals per hour (integers) — tasks can enter anywhere")
+        st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
             arr_fd = st.number_input("→ Front Desk", min_value=0, max_value=500, value=15, step=1, format="%d",
@@ -452,7 +452,7 @@ if st.session_state.wizard_step == 1:
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, 0.40, 0.05,
                                        help="Chance that the nurse protocol resolves the task without needing the provider.")
 
-            st.markdown("#### Loop settings")
+            st.markdown("#### Rework Loop Settings")
             cL1, cL2 = st.columns(2)
             with cL1:
                 p_fd_insuff = st.slider("Front Desk loop chance", 0.0, 0.6, 0.05, 0.01,
@@ -480,7 +480,7 @@ if st.session_state.wizard_step == 1:
                                                   help="Delay before back-office rework can occur.")
 
             # ----- Interaction matrix (routing) -----
-            st.markdown("#### Interaction matrix (routing) — rows normalized automatically")
+            st.markdown("#### Interaction matrix - Routing Probabilities")
             st.caption("For each role, set probabilities of sending the task to another role or Done.")
 
             route: Dict[str, Dict[str, float]] = {}
