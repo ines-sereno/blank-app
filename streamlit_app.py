@@ -345,16 +345,32 @@ def go_back():
 
 # --- Locale-agnostic probability input (always dot-decimal) ---
 def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None) -> float:
-    """Probability input that updates immediately and enforces dot-decimal style."""
-    v = st.number_input(
+    """Probability input with immediate update and dot-decimal formatting (no Enter required)."""
+    # store the current value in session state if missing
+    if key not in st.session_state:
+        st.session_state[key] = f"{float(default):.2f}"
+
+    def _normalize_input():
+        raw = str(st.session_state[key]).replace(",", ".")
+        try:
+            val = float(raw)
+        except ValueError:
+            val = float(default)
+        val = max(0.0, min(1.0, val))
+        st.session_state[key] = f"{val:.2f}"
+
+    # Create the input box that triggers on change (no Enter needed)
+    st.text_input(
         label,
-        min_value=0.0, max_value=1.0,
-        value=float(default),
-        step=0.01, format="%.2f",
-        help=help, key=key
+        key=key,
+        value=st.session_state[key],
+        on_change=_normalize_input,
+        help=help,
     )
-    st.caption(f"{v:.2f}")
-    return v
+
+    val = float(str(st.session_state[key]).replace(",", "."))
+    st.caption(f"{val:.2f}")
+    return val
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
