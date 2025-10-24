@@ -390,36 +390,37 @@ if st.session_state.wizard_step == 1:
     When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
     """)
 
-    # --- Live (auto-updating) staffing controls OUTSIDE the form ---
-        st.markdown("**Staffing (on duty)**")
-        c_staff1, c_staff2, c_staff3, c_staff4 = st.columns(4)
-        with c_staff1:
-            fd_cap = st.number_input(
-                "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
-                help="Number of front desk staff simultaneously available."
-            )
-        with c_staff2:
-            nurse_cap = st.number_input(
-                "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
-                help="Number of nurses/medical assistants on duty."
-            )
-        with c_staff3:
-            provider_cap = st.number_input(
-                "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of providers on duty."
-            )
-        with c_staff4:
-            bo_cap = st.number_input(
-                "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of back-office staff on duty."
-            )
+# --- Live (auto-updating) staffing controls OUTSIDE the form ---
+st.markdown("**Staffing (on duty)**")
+c_staff1, c_staff2, c_staff3, c_staff4 = st.columns(4)
+with c_staff1:
+    fd_cap = st.number_input(
+        "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
+        help="Number of front desk staff simultaneously available."
+    )
+with c_staff2:
+    nurse_cap = st.number_input(
+        "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
+        help="Number of nurses/medical assistants on duty."
+    )
+with c_staff3:
+    provider_cap = st.number_input(
+        "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
+        help="Number of providers on duty."
+    )
+with c_staff4:
+    bo_cap = st.number_input(
+        "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
+        help="Number of back-office staff on duty."
+    )
 
-        # Compute “off” flags that will immediately disable dependent widgets
-        fd_off = (fd_cap == 0)
-        nu_off = (nurse_cap == 0)
-        pr_off = (provider_cap == 0)
-        bo_off = (bo_cap == 0)
-        st.divider()
+# Compute “off” flags that will immediately disable dependent widgets
+fd_off = (fd_cap == 0)
+nu_off = (nurse_cap == 0)
+pr_off = (provider_cap == 0)
+bo_off = (bo_cap == 0)
+st.divider()
+
 
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
