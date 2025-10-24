@@ -343,7 +343,7 @@ if st.session_state.wizard_step == 1:
     st.subheader("Step 1 — Design your clinic")
 
 if "design_saved" not in st.session_state:
-st.session_state.design_saved = False
+    st.session_state.design_saved = False
 
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
