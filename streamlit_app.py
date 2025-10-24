@@ -344,9 +344,8 @@ def go_back():
     st.session_state.wizard_step = max(1, st.session_state.wizard_step - 1)
 
 # --- Locale-agnostic probability input (always dot-decimal) ---
-def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None) -> float:
+def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None, disabled: bool = False) -> float:
     """Probability input for use inside st.form; no Enter needed, dot-decimal enforced on read."""
-    # seed the field once in session_state
     if key not in st.session_state:
         st.session_state[key] = f"{float(default):.2f}"
 
@@ -355,14 +354,14 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
         value=st.session_state[key],
         key=key,
         help=help,
+        disabled=disabled,   # <— important
     )
-    # normalize *now* (no on_change needed inside forms)
     try:
         val = float(str(raw).replace(",", "."))
     except ValueError:
         val = float(default)
     val = max(0.0, min(1.0, val))
-    st.caption(f"{val:.2f}")
+    st.caption(f"{val:.2f}" if not disabled else "— disabled (set staffing > 0)")
     return val
 
 
@@ -404,80 +403,106 @@ if st.session_state.wizard_step == 1:
             st.markdown("**Staffing (on duty)**")
             fd_cap = st.number_input(
                 "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
-                help="Number of front desk staff simultaneously available."
+                help="Number of front desk staff simultaneously available.",
+                fd_off = (fd_cap == 0)
             )
             nurse_cap = st.number_input(
                 "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
-                help="Number of nurses/medical assistants on duty."
+                help="Number of nurses/medical assistants on duty.",
+                nu_off = (nurse_cap == 0)
+
             )
             provider_cap = st.number_input(
                 "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of providers on duty."
+                help="Number of providers on duty.",
+                pr_off = (provider_cap == 0)
             )
             bo_cap = st.number_input(
                 "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
-                help="Number of back-office staff on duty."
+                help="Number of back-office staff on duty.",
+                bo_off = (bo_cap == 0)
             )
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
             arr_fd = st.number_input("→ Front Desk", min_value=0, max_value=500, value=15, step=1, format="%d",
-                                     help="Average number of tasks arriving to the Front Desk each hour.")
+                                     help="Average number of tasks arriving to the Front Desk each hour.", 
+                                    disabled=fd_off)
         with cA2:
             arr_nu = st.number_input("→ Nurse / MAs", min_value=0, max_value=500, value=20, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Nurse/MA queue per hour.")
+                                     help="Average number of tasks arriving directly to the Nurse/MA queue per hour.", 
+                                    disabled=nu_off)
         with cA3:
             arr_pr = st.number_input("→ Provider", min_value=0, max_value=500, value=10, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Provider per hour.")
+                                     help="Average number of tasks arriving directly to the Provider per hour.", 
+                                    disabled=pr_off)
         with cA4:
             arr_bo = st.number_input("→ Back Office", min_value=0, max_value=500, value=5, step=1, format="%d",
-                                     help="Average number of tasks arriving directly to the Back Office per hour.")
+                                     help="Average number of tasks arriving directly to the Back Office per hour.", 
+                                    disabled=bo_off)
 
         with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
             st.markdown("#### Service times (mean minutes)")
             cS1, cS2 = st.columns(2)
             with cS1:
                 svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, 3.0, 0.5,
-                                          help="Average time to process a task at the Front Desk.")
+                                          help="Average time to process a task at the Front Desk.",
+                                         disabled=fd_off)
                 svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, 2.0, 0.5,
-                                               help="Average time when a task is handled entirely by standing nurse protocol.")
+                                               help="Average time when a task is handled entirely by standing nurse protocol.", 
+                                              disabled=nu_off)
                 svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, 4.0, 0.5,
-                                      help="Average time for a standard nurse/MA task (non-protocol).")
+                                      help="Average time for a standard nurse/MA task (non-protocol).",
+                                     disabled=nu_off)
             with cS2:
                 svc_provider = st.slider("Provider", 0.0, 60.0, 6.0, 0.5,
-                                         help="Average time for a provider to complete their part of a task.")
+                                         help="Average time for a provider to complete their part of a task.",
+                                        disabled=pr_off)
                 svc_backoffice = st.slider("Back Office", 0.0, 60.0, 5.0, 0.5,
-                                           help="Average time for back-office processing.")
+                                           help="Average time for back-office processing.",
+                                          disabled=bo_off)
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, 0.40, 0.05,
-                                       help="Chance that the nurse protocol resolves the task without needing the provider.")
+                                       help="Chance that the nurse protocol resolves the task without needing the provider.",
+                                      disabled=nu_off)
 
             st.markdown("#### Rework Loop Probabilities")
             cL1, cL2 = st.columns(2)
             with cL1:
                 p_fd_insuff = st.slider("Front Desk loop chance", 0.0, 0.6, 0.05, 0.01,
-                                        help="Chance a Front Desk task needs to loop for missing information.")
+                                        help="Chance a Front Desk task needs to loop for missing information.",
+                                        disabled=fd_off)
                 max_fd_loops = st.slider("Max Front Desk loops", 0, 10, 3, 1,
-                                         help="Maximum number of Front Desk rework loops per task.")
+                                         help="Maximum number of Front Desk rework loops per task.",
+                                        disabled=fd_off)
                 fd_loop_delay = st.slider("Front Desk loop delay (min)", 0.0, 240.0, 30.0, 5.0,
-                                          help="Delay spent collecting info before reworking at Front Desk.")
+                                          help="Delay spent collecting info before reworking at Front Desk.",
+                                         disabled=fd_off)
                 p_nurse_insuff = st.slider("Nurse loop chance", 0.0, 0.6, 0.05, 0.01,
-                                           help="Chance the nurse sends the task back for clarification.")
+                                           help="Chance the nurse sends the task back for clarification.", 
+                                          disabled=nu_off)
                 max_nurse_loops = st.slider("Max Nurse loops", 0, 10, 2, 1,
-                                            help="Maximum number of Nurse rework loops per task.")
+                                            help="Maximum number of Nurse rework loops per task."
+                                           disabled=nu_off)
             with cL2:
                 p_provider_insuff = st.slider("Provider loop chance", 0.0, 0.6, 0.00, 0.01,
-                                              help="Chance a Provider needs to rework the same task.")
+                                              help="Chance a Provider needs to rework the same task.",
+                                              disabled=pr_off)
                 max_provider_loops = st.slider("Max Provider loops", 0, 10, 1, 1,
-                                               help="Maximum number of Provider rework loops per task.")
+                                               help="Maximum number of Provider rework loops per task."
+                                               disabled=pr_off)
                 provider_loop_delay = st.slider("Provider loop delay (min)", 0.0, 240.0, 15.0, 5.0,
-                                                help="Delay before provider rework can occur.")
+                                                help="Delay before provider rework can occur.",
+                                                disabled=pr_off)
                 p_backoffice_insuff = st.slider("Back Office loop chance", 0.0, 0.6, 0.00, 0.01,
-                                                help="Chance Back Office needs to rework the same task.")
+                                                help="Chance Back Office needs to rework the same task."
+                                                disabled=bo_off)
                 max_backoffice_loops = st.slider("Max Back Office loops", 0, 10, 1, 1,
-                                                 help="Maximum number of Back Office rework loops per task.")
+                                                 help="Maximum number of Back Office rework loops per task.",
+                                                 disabled=bo_off)
                 backoffice_loop_delay = st.slider("Back Office loop delay (min)", 0.0, 240.0, 15.0, 5.0,
-                                                  help="Delay before back-office rework can occur.")
+                                                  help="Delay before back-office rework can occur.",
+                                                  disabled=bo_off)
 
             # ----- Interaction matrix (routing) -----
             st.markdown("#### Interaction matrix - Routing Probabilities")
@@ -493,35 +518,40 @@ if st.session_state.wizard_step == 1:
                         f"to FD ({from_role})",
                         key=f"r_{from_role}_fd",
                         default=float(defaults.get("Front Desk", 0.2)),
-                        help="Probability to route next to Front Desk."
+                        help="Probability to route next to Front Desk.",
+                        disabled=disabled
                     )
                 with c2:
                     to_nu = prob_input(
                         f"to Nurse ({from_role})",
                         key=f"r_{from_role}_nu",
                         default=float(defaults.get("Nurse", 0.4)),
-                        help="Probability to route next to Nurse/MA."
+                        help="Probability to route next to Nurse/MA.",
+                        disabled=disabled
                     )
                 with c3:
                     to_pr = prob_input(
                         f"to Provider ({from_role})",
                         key=f"r_{from_role}_pr",
                         default=float(defaults.get("Provider", 0.2)),
-                        help="Probability to route next to Provider."
+                        help="Probability to route next to Provider.",
+                        disabled=disabled
                     )
                 with c4:
                     to_bo = prob_input(
                         f"to Back Office ({from_role})",
                         key=f"r_{from_role}_bo",
                         default=float(defaults.get("Back Office", 0.5)),
-                        help="Probability to route next to Back Office."
+                        help="Probability to route next to Back Office.",
+                        disabled=disabled
                     )
                 with c5:
                     to_done = prob_input(
                         f"to Done ({from_role})",
                         key=f"r_{from_role}_done",
                         default=float(defaults.get(DONE, 0.2)),
-                        help="Probability the task finishes after this role."
+                        help="Probability the task finishes after this role.",
+                        disabled=disabled
                     )
                 return {
                     "Front Desk": to_fd,
@@ -532,10 +562,10 @@ if st.session_state.wizard_step == 1:
                 }
 
             # sensible loose defaults – calls must be OUTSIDE the function
-            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4})
-            route["Nurse"]      = route_row_ui("Nurse",      {"Provider": 0.5, DONE: 0.5})
-            route["Provider"]   = route_row_ui("Provider",   {"Back Office": 0.2, DONE: 0.8})
-            route["Back Office"]= route_row_ui("Back Office",{DONE: 1.0})
+            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
+            route["Nurse"]      = route_row_ui("Nurse",      {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
+            route["Provider"]   = route_row_ui("Provider",   {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
+            route["Back Office"]= route_row_ui("Back Office",{DONE: 1.0}, disabled=bo_off)
 
         # --- Save button INSIDE the form ---
         saved = st.form_submit_button("Save", use_container_width=True)
