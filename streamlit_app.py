@@ -516,58 +516,58 @@ if st.session_state.wizard_step == 1:
 
             route: Dict[str, Dict[str, float]] = {}
 
-    def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
-        st.markdown(f"**{from_role} →**")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        with c1:
-            to_fd = prob_input(
-                f"to FD ({from_role})",
-                key=f"r_{from_role}_fd",
-                default=float(defaults.get("Front Desk", 0.2)),
-                help="Probability to route next to Front Desk.",
-                disabled=disabled,
-            )
-        with c2:
-            to_nu = prob_input(
-                f"to Nurse ({from_role})",
-                key=f"r_{from_role}_nu",
-                default=float(defaults.get("Nurse", 0.4)),
-                help="Probability to route next to Nurse/MA.",
-                disabled=disabled,
-            )
-        with c3:
-            to_pr = prob_input(
-                f"to Provider ({from_role})",
-                key=f"r_{from_role}_pr",
-                default=float(defaults.get("Provider", 0.2)),
-                help="Probability to route next to Provider.",
-                disabled=disabled,
-            )
-        with c4:
-            to_bo = prob_input(
-                f"to Back Office ({from_role})",
-                key=f"r_{from_role}_bo",
-                default=float(defaults.get("Back Office", 0.5)),
-                help="Probability to route next to Back Office.",
-                disabled=disabled,
-            )
-        with c5:
-            to_done = prob_input(
-                f"to Done ({from_role})",
-                key=f"r_{from_role}_done",
-                default=float(defaults.get(DONE, 0.2)),
-                help="Probability the task finishes after this role.",
-                disabled=disabled,
-            )
-        return {
-            "Front Desk": to_fd,
-            "Nurse": to_nu,
-            "Provider": to_pr,
-            "Back Office": to_bo,
-            DONE: to_done,
-        }
-
-         # sensible loose defaults – calls must be OUTSIDE the function (and still inside the expander)
+            def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
+                st.markdown(f"**{from_role} →**")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                with c1:
+                    to_fd = prob_input(
+                        f"to FD ({from_role})",
+                        key=f"r_{from_role}_fd",
+                        default=float(defaults.get("Front Desk", 0.2)),
+                        help="Probability to route next to Front Desk.",
+                        disabled=disabled,
+                    )
+                with c2:
+                    to_nu = prob_input(
+                        f"to Nurse ({from_role})",
+                        key=f"r_{from_role}_nu",
+                        default=float(defaults.get("Nurse", 0.4)),
+                        help="Probability to route next to Nurse/MA.",
+                        disabled=disabled,
+                    )
+                with c3:
+                    to_pr = prob_input(
+                        f"to Provider ({from_role})",
+                        key=f"r_{from_role}_pr",
+                        default=float(defaults.get("Provider", 0.2)),
+                        help="Probability to route next to Provider.",
+                        disabled=disabled,
+                    )
+                with c4:
+                    to_bo = prob_input(
+                        f"to Back Office ({from_role})",
+                        key=f"r_{from_role}_bo",
+                        default=float(defaults.get("Back Office", 0.5)),
+                        help="Probability to route next to Back Office.",
+                        disabled=disabled,
+                    )
+                with c5:
+                    to_done = prob_input(
+                        f"to Done ({from_role})",
+                        key=f"r_{from_role}_done",
+                        default=float(defaults.get(DONE, 0.2)),
+                        help="Probability the task finishes after this role.",
+                        disabled=disabled,
+                    )
+                return {
+                    "Front Desk": to_fd,
+                    "Nurse": to_nu,
+                    "Provider": to_pr,
+                    "Back Office": to_bo,
+                    DONE: to_done,
+                }
+    
+        # sensible loose defaults – calls must be OUTSIDE the function (and still inside the expander)
         route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
         route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
         route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
