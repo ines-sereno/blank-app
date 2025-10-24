@@ -373,11 +373,11 @@ if st.session_state.wizard_step == 1:
         c1, c2 = st.columns([1,1])
         with c1:
             sim_days = st.number_input(
-                "Days to simulate", min_value=1, max_value=30, value=1, step=1, format="%d",
+                "Days to simulate", min_value=1, max_value=30, value=5, step=1, format="%d",
                 help="Number of 24-hour days to include in the simulation."
             )
             open_hours = st.number_input(
-                "Hours open per day", min_value=1, max_value=24, value=8, step=1, format="%d",
+                "Hours open per day", min_value=1, max_value=24, value=10, step=1, format="%d",
                 help="Clinic operating hours per day during which work can be performed."
             )
             cv_speed = st.slider(
@@ -387,11 +387,11 @@ if st.session_state.wizard_step == 1:
         with c2:
             st.markdown("**Staffing (on duty)**")
             fd_cap = st.number_input(
-                "Front Desk staff", min_value=0, max_value=50, value=1, step=1, format="%d",
+                "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
                 help="Number of front desk staff simultaneously available."
             )
             nurse_cap = st.number_input(
-                "Nurses / MAs", min_value=0, max_value=50, value=1, step=1, format="%d",
+                "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
                 help="Number of nurses/medical assistants on duty."
             )
             provider_cap = st.number_input(
@@ -406,16 +406,16 @@ if st.session_state.wizard_step == 1:
         st.markdown("### Arrivals per hour (integers) — tasks can enter anywhere")
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
-            arr_fd = st.number_input("→ Front Desk", min_value=0, max_value=500, value=12, step=1, format="%d",
+            arr_fd = st.number_input("→ Front Desk", min_value=0, max_value=500, value=15, step=1, format="%d",
                                      help="Average number of tasks arriving to the Front Desk each hour.")
         with cA2:
-            arr_nu = st.number_input("→ Nurse / MAs", min_value=0, max_value=500, value=0, step=1, format="%d",
+            arr_nu = st.number_input("→ Nurse / MAs", min_value=0, max_value=500, value=20, step=1, format="%d",
                                      help="Average number of tasks arriving directly to the Nurse/MA queue per hour.")
         with cA3:
-            arr_pr = st.number_input("→ Provider", min_value=0, max_value=500, value=0, step=1, format="%d",
+            arr_pr = st.number_input("→ Provider", min_value=0, max_value=500, value=10, step=1, format="%d",
                                      help="Average number of tasks arriving directly to the Provider per hour.")
         with cA4:
-            arr_bo = st.number_input("→ Back Office", min_value=0, max_value=500, value=0, step=1, format="%d",
+            arr_bo = st.number_input("→ Back Office", min_value=0, max_value=500, value=5, step=1, format="%d",
                                      help="Average number of tasks arriving directly to the Back Office per hour.")
 
         with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
