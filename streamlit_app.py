@@ -482,7 +482,7 @@ if st.session_state.wizard_step == 1:
                                            help="Chance the nurse sends the task back for clarification.", 
                                           disabled=nu_off)
                 max_nurse_loops = st.slider("Max Nurse loops", 0, 10, 2, 1,
-                                            help="Maximum number of Nurse rework loops per task."
+                                            help="Maximum number of Nurse rework loops per task.",
                                            disabled=nu_off)
             with cL2:
                 p_provider_insuff = st.slider("Provider loop chance", 0.0, 0.6, 0.00, 0.01,
