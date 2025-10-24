@@ -452,7 +452,7 @@ if st.session_state.wizard_step == 1:
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, 0.40, 0.05,
                                        help="Chance that the nurse protocol resolves the task without needing the provider.")
 
-            st.markdown("#### Rework Loop Settings")
+            st.markdown("#### Rework Loop Probabilities")
             cL1, cL2 = st.columns(2)
             with cL1:
                 p_fd_insuff = st.slider("Front Desk loop chance", 0.0, 0.6, 0.05, 0.01,
