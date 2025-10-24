@@ -1,3 +1,4 @@
+from typing import Dict, List
 import streamlit as st
 import simpy
 import random
