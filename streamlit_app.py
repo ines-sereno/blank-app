@@ -345,25 +345,16 @@ def go_back():
 
 # --- Locale-agnostic probability input (always dot-decimal) ---
 def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None) -> float:
-    """Probability input for use inside st.form; no Enter needed, dot-decimal enforced on read."""
-    # seed the field once in session_state
-    if key not in st.session_state:
-        st.session_state[key] = f"{float(default):.2f}"
-
-    raw = st.text_input(
+    """Immediate-updating probability input (0.00–1.00) using a slider."""
+    return st.slider(
         label,
-        value=st.session_state[key],
-        key=key,
+        min_value=0.0, max_value=1.0,
+        value=float(default),
+        step=0.01,
         help=help,
+        key=key
     )
-    # normalize *now* (no on_change needed inside forms)
-    try:
-        val = float(str(raw).replace(",", "."))
-    except ValueError:
-        val = float(default)
-    val = max(0.0, min(1.0, val))
-    st.caption(f"{val:.2f}")
-    return val
+
 
 
 # -------- STEP 1: DESIGN --------
