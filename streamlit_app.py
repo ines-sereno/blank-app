@@ -5,6 +5,8 @@ import numpy as np
 import math
 import pandas as pd
 from typing import Dict, List
+import locale
+locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 # =============================
 # Utilities
