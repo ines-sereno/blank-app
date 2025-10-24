@@ -332,6 +332,8 @@ if "results" not in st.session_state:
     st.session_state["results"] = None
 if "design" not in st.session_state:
     st.session_state["design"] = None
+if "design_saved" not in st.session_state:
+    st.session_state.design_saved = False
 
 def go_next():
     st.session_state.wizard_step = min(2, st.session_state.wizard_step + 1)
@@ -340,10 +342,6 @@ def go_back():
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
-    st.subheader("Step 1 — Design your clinic")
-
-if "design_saved" not in st.session_state:
-    st.session_state.design_saved = False
 
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
@@ -446,21 +444,48 @@ if "design_saved" not in st.session_state:
                 st.markdown(f"**{from_role} →**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 with c1:
-                    to_fd = st.number_input(f"to FD ({from_role})", 0.0, 1.0, defaults.get("Front Desk", 0.0), 0.05, format="%.2f",
-                                            help="Probability to route next to Front Desk.", key=f"r_{from_role}_fd")
+                    to_fd = st.number_input(
+                        f"to FD ({from_role})", min_value=0.0, max_value=1.0,
+                        value=float(defaults.get("Front Desk", 0.0)),
+                        step=0.01, format="%.2f",
+                        help="Probability to route next to Front Desk.",
+                        key=f"r_{from_role}_fd"
+                    )
                 with c2:
-                    to_nu = st.number_input(f"to Nurse ({from_role})", 0.0, 1.0, defaults.get("Nurse", 0.0), 0.05, format="%.2f",
-                                            help="Probability to route next to Nurse/MA.", key=f"r_{from_role}_nu")
+                    to_nu = st.number_input(
+                        f"to Nurse ({from_role})", min_value=0.0, max_value=1.0,
+                        value=float(defaults.get("Nurse", 0.0)),
+                        step=0.01, format="%.2f",
+                        help="Probability to route next to Nurse/MA.",
+                        key=f"r_{from_role}_nu"
+                    )
                 with c3:
-                    to_pr = st.number_input(f"to Provider ({from_role})", 0.0, 1.0, defaults.get("Provider", 0.0), 0.05, format="%.2f",
-                                            help="Probability to route next to Provider.", key=f"r_{from_role}_pr")
+                    to_pr = st.number_input(
+                        f"to Provider ({from_role})", min_value=0.0, max_value=1.0,
+                        value=float(defaults.get("Provider", 0.0)),
+                        step=0.01, format="%.2f",
+                        help="Probability to route next to Provider.",
+                        key=f"r_{from_role}_pr"
+                    )
                 with c4:
-                    to_bo = st.number_input(f"to Back Office ({from_role})", 0.0, 1.0, defaults.get("Back Office", 0.0), 0.05, format="%.2f",
-                                            help="Probability to route next to Back Office.", key=f"r_{from_role}_bo")
+                    to_bo = st.number_input(
+                        f"to Back Office ({from_role})", min_value=0.0, max_value=1.0,
+                        value=float(defaults.get("Back Office", 0.0)),
+                        step=0.01, format="%.2f",
+                        help="Probability to route next to Back Office.",
+                        key=f"r_{from_role}_bo"
+                    )
                 with c5:
-                    to_done = st.number_input(f"to Done ({from_role})", 0.0, 1.0, defaults.get(DONE, 0.0), 0.05, format="%.2f",
-                                              help="Probability the task finishes after this role.", key=f"r_{from_role}_done")
-                route[from_role] = {"Front Desk": to_fd, "Nurse": to_nu, "Provider": to_pr, "Back Office": to_bo, DONE: to_done}
+                    to_done = st.number_input(
+                        f"to Done ({from_role})", min_value=0.0, max_value=1.0,
+                        value=float(defaults.get(DONE, 0.0)),
+                        step=0.01, format="%.2f",
+                        help="Probability the task finishes after this role.",
+                        key=f"r_{from_role}_done"
+                    )
+                route[from_role] = {
+                    "Front Desk": to_fd, "Nurse": to_nu, "Provider": to_pr, "Back Office": to_bo, DONE: to_done
+                }
 
             # sensible loose defaults
             route_row_ui("Front Desk", {"Nurse": 0.6, DONE: 0.4})
@@ -468,27 +493,26 @@ if "design_saved" not in st.session_state:
             route_row_ui("Provider", {"Back Office": 0.2, DONE: 0.8})
             route_row_ui("Back Office", {DONE: 1.0})
 
-        # Two separate actions: Save, then Continue
-        save_clicked = st.form_submit_button("Save", use_container_width=True)
-        continue_clicked = st.form_submit_button("Continue →", use_container_width=True, disabled=not st.session_state.design_saved)
+        # --- Save button INSIDE the form ---
+        saved = st.form_submit_button("Save", use_container_width=True)
 
-        if save_clicked or continue_clicked:
+        if saved:
             open_minutes = int(open_hours * MIN_PER_HOUR)
             sim_minutes = int(sim_days * DAY_MIN)
 
-            # build and store the design dict exactly as before
+            # build and store the design dict
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes,
                 open_minutes=open_minutes,
                 # staffing
                 frontdesk_cap=fd_cap, nurse_cap=nurse_cap, provider_cap=provider_cap, backoffice_cap=bo_cap,
-                # arrivals by role (integers) — if you have them; otherwise keep your existing arrivals fields
+                # arrivals by role (integers)
                 arrivals_per_hour_by_role={
-                    "Front Desk": int(arr_fd) if "arr_fd" in locals() else 0,
-                    "Nurse":      int(arr_nu) if "arr_nu" in locals() else 0,
-                    "Provider":   int(arr_pr) if "arr_pr" in locals() else 0,
-                    "Back Office":int(arr_bo) if "arr_bo" in locals() else 0,
-                } if "arr_fd" in locals() else st.session_state.get("design", {}).get("arrivals_per_hour_by_role", {}),
+                    "Front Desk": int(arr_fd),
+                    "Nurse":      int(arr_nu),
+                    "Provider":   int(arr_pr),
+                    "Back Office":int(arr_bo),
+                },
                 # service + dist + overheads
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider,   svc_backoffice=svc_backoffice,
@@ -500,18 +524,20 @@ if "design_saved" not in st.session_state:
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
                 p_provider_insuff=p_provider_insuff, max_provider_loops=max_provider_loops, provider_loop_delay=provider_loop_delay,
                 p_backoffice_insuff=p_backoffice_insuff, max_backoffice_loops=max_backoffice_loops, backoffice_loop_delay=backoffice_loop_delay,
-                # routing matrix & protocol if present in your UI
-                p_protocol=p_protocol if "p_protocol" in locals() else 0.40,
-                route_matrix=route if "route" in locals() else st.session_state.get("design", {}).get("route_matrix", {})
+                # nurse protocol + routing matrix
+                p_protocol=p_protocol,
+                route_matrix=route
             )
 
-            # Mark as saved
             st.session_state.design_saved = True
             st.success("Configuration saved.")
 
-            # Only advance if user clicked Continue and it’s saved
-            if continue_clicked and st.session_state.design_saved:
-                go_next()
+    # --- Continue button OUTSIDE the form ---
+    if st.session_state.design_saved:
+        st.button("Continue →", on_click=go_next, type="primary", use_container_width=True)
+    else:
+        st.info("Click **Save** to enable Continue.")
+        st.button("Continue →", disabled=True, use_container_width=True)
 
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
