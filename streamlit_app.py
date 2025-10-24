@@ -454,23 +454,23 @@ if st.session_state.wizard_step == 1:
             with cS1:
                 svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, 3.0, 0.5,
                                           help="Average time to process a task at the Front Desk.",
-                                         disabled=fd_off)
+                                          disabled=fd_off)
                 svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, 2.0, 0.5,
-                                               help="Average time when a task is handled entirely by standing nurse protocol.", 
-                                              disabled=nu_off)
+                                        help="Average time when a task is handled entirely by standing nurse protocol.",
+                                       disabled=nu_off)
                 svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, 4.0, 0.5,
                                       help="Average time for a standard nurse/MA task (non-protocol).",
-                                     disabled=nu_off)
+                                      disabled=nu_off)
             with cS2:
                 svc_provider = st.slider("Provider", 0.0, 60.0, 6.0, 0.5,
                                          help="Average time for a provider to complete their part of a task.",
-                                        disabled=pr_off)
+                                         disabled=pr_off)
                 svc_backoffice = st.slider("Back Office", 0.0, 60.0, 5.0, 0.5,
                                            help="Average time for back-office processing.",
-                                          disabled=bo_off)
+                                           disabled=bo_off)
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, 0.40, 0.05,
                                        help="Chance that the nurse protocol resolves the task without needing the provider.",
-                                      disabled=nu_off)
+                                       disabled=nu_off)
 
             st.markdown("#### Rework Loop Probabilities")
             cL1, cL2 = st.columns(2)
@@ -480,16 +480,16 @@ if st.session_state.wizard_step == 1:
                                         disabled=fd_off)
                 max_fd_loops = st.slider("Max Front Desk loops", 0, 10, 3, 1,
                                          help="Maximum number of Front Desk rework loops per task.",
-                                        disabled=fd_off)
+                                         disabled=fd_off)
                 fd_loop_delay = st.slider("Front Desk loop delay (min)", 0.0, 240.0, 30.0, 5.0,
                                           help="Delay spent collecting info before reworking at Front Desk.",
-                                         disabled=fd_off)
+                                          disabled=fd_off)
                 p_nurse_insuff = st.slider("Nurse loop chance", 0.0, 0.6, 0.05, 0.01,
-                                           help="Chance the nurse sends the task back for clarification.", 
-                                          disabled=nu_off)
+                                           help="Chance the nurse sends the task back for clarification.",
+                                           disabled=nu_off)
                 max_nurse_loops = st.slider("Max Nurse loops", 0, 10, 2, 1,
                                             help="Maximum number of Nurse rework loops per task.",
-                                           disabled=nu_off)
+                                            disabled=nu_off)
             with cL2:
                 p_provider_insuff = st.slider("Provider loop chance", 0.0, 0.6, 0.00, 0.01,
                                               help="Chance a Provider needs to rework the same task.",
@@ -516,63 +516,63 @@ if st.session_state.wizard_step == 1:
 
             route: Dict[str, Dict[str, float]] = {}
 
-        def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
-            st.markdown(f"**{from_role} →**")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            with c1:
-                to_fd = prob_input(
-                    f"to FD ({from_role})",
-                    key=f"r_{from_role}_fd",
-                    default=float(defaults.get("Front Desk", 0.2)),
-                    help="Probability to route next to Front Desk.",
-                    disabled=disabled,
-                 )
-            with c2:
-                to_nu = prob_input(
-                    f"to Nurse ({from_role})",
-                    key=f"r_{from_role}_nu",
-                    default=float(defaults.get("Nurse", 0.4)),
-                    help="Probability to route next to Nurse/MA.",
-                    disabled=disabled,
-                )
-            with c3:
-                to_pr = prob_input(
-                    f"to Provider ({from_role})",
-                    key=f"r_{from_role}_pr",
-                    default=float(defaults.get("Provider", 0.2)),
-                    help="Probability to route next to Provider.",
-                    disabled=disabled,
-                )
-            with c4:
-                to_bo = prob_input(
-                    f"to Back Office ({from_role})",
-                    key=f"r_{from_role}_bo",
-                    default=float(defaults.get("Back Office", 0.5)),
-                    help="Probability to route next to Back Office.",
-                    disabled=disabled,
-                )
-            with c5:
-                to_done = prob_input(
-                    f"to Done ({from_role})",
-                    key=f"r_{from_role}_done",
-                    default=float(defaults.get(DONE, 0.2)),
-                    help="Probability the task finishes after this role.",
-                    disabled=disabled,
-                )
-            return {
-                "Front Desk": to_fd,
-                "Nurse": to_nu,
-                "Provider": to_pr,
-                "Back Office": to_bo,
-                DONE: to_done,
-            }
+    def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
+        st.markdown(f"**{from_role} →**")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            to_fd = prob_input(
+                f"to FD ({from_role})",
+                key=f"r_{from_role}_fd",
+                default=float(defaults.get("Front Desk", 0.2)),
+                help="Probability to route next to Front Desk.",
+                disabled=disabled,
+            )
+        with c2:
+            to_nu = prob_input(
+                f"to Nurse ({from_role})",
+                key=f"r_{from_role}_nu",
+                default=float(defaults.get("Nurse", 0.4)),
+                help="Probability to route next to Nurse/MA.",
+                disabled=disabled,
+            )
+        with c3:
+            to_pr = prob_input(
+                f"to Provider ({from_role})",
+                key=f"r_{from_role}_pr",
+                default=float(defaults.get("Provider", 0.2)),
+                help="Probability to route next to Provider.",
+                disabled=disabled,
+            )
+        with c4:
+            to_bo = prob_input(
+                f"to Back Office ({from_role})",
+                key=f"r_{from_role}_bo",
+                default=float(defaults.get("Back Office", 0.5)),
+                help="Probability to route next to Back Office.",
+                disabled=disabled,
+            )
+        with c5:
+            to_done = prob_input(
+                f"to Done ({from_role})",
+                key=f"r_{from_role}_done",
+                default=float(defaults.get(DONE, 0.2)),
+                help="Probability the task finishes after this role.",
+                disabled=disabled,
+            )
+        return {
+            "Front Desk": to_fd,
+            "Nurse": to_nu,
+            "Provider": to_pr,
+            "Back Office": to_bo,
+            DONE: to_done,
+        }
 
+         # sensible loose defaults – calls must be OUTSIDE the function (and still inside the expander)
+        route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
+        route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
+        route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
+        route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled=bo_off)
 
-            # sensible loose defaults – calls must be OUTSIDE the function
-            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
-            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
-            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
-            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0}, disabled=bo_off)
 
         # --- Save button INSIDE the form ---
         saved = st.form_submit_button("Save", use_container_width=True)
