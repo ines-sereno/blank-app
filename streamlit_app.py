@@ -218,6 +218,8 @@ def pick_random_other_role(exclude: List[str]) -> str:
     return random.choice(choices)
 
 def handle_role(env, task_id, s: CHCSystem, role: str):
+    if role not in ["Front Desk", "Nurse", "Provider", "Back Office"]:
+        return "Done"
     """
     Execute service (and role-specific loops), then return the next role (or DONE).
     """
@@ -535,6 +537,83 @@ if st.session_state.wizard_step == 1:
             st.success("Design saved. Continue to run the simulation.")
             go_next()
 
+# --- Safe defaults for older saved designs / partial configs ---
+def normalize_params(p: dict) -> dict:
+    # Core lists / constants
+    ROLES = ["Front Desk", "Nurse", "Provider", "Back Office"]
+    DONE  = "Done"
+
+    # Arrivals-by-role (fallback to old single arrival rate → all to Front Desk)
+    if "arrivals_per_hour_by_role" not in p:
+        rate = float(p.get("arrivals_per_hour", 12.0))  # legacy knob if present
+        p["arrivals_per_hour_by_role"] = {
+            "Front Desk": rate, "Nurse": 0.0, "Provider": 0.0, "Back Office": 0.0
+        }
+    else:
+        # ensure all roles present
+        for r in ROLES:
+            p["arrivals_per_hour_by_role"].setdefault(r, 0.0)
+
+    # Routing matrix (normalize later, but ensure presence & DONE column)
+    if "route_matrix" not in p:
+        p["route_matrix"] = {
+            "Front Desk": {"Nurse": 0.6, "Provider": 0.0, "Back Office": 0.0, DONE: 0.4},
+            "Nurse": {"Provider": 0.5, DONE: 0.5},
+            "Provider": {"Back Office": 0.2, DONE: 0.8},
+            "Back Office": {DONE: 1.0},
+        }
+    for r in ROLES:
+        p["route_matrix"].setdefault(r, {})
+        p["route_matrix"][r].setdefault(DONE, 1.0 if r in ["Provider", "Back Office"] else 0.0)
+        for c in ROLES:
+            p["route_matrix"][r].setdefault(c, 0.0)
+
+    # Misrouting params
+    p.setdefault("p_wrong_at_arrival", 0.0)
+    p.setdefault("p_wrong_between", 0.0)
+
+    # Policies
+    p.setdefault("require_provider_signoff", False)
+    p.setdefault("admin_possible_without_fd", False)
+    p.setdefault("force_backoffice_after_provider", False)
+
+    # Distributions / overheads (used by scheduled_service)
+    p.setdefault("dist_role", {
+        "Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential",
+        "Provider":"exponential","Back Office":"exponential"
+    })
+    p.setdefault("cv_speed", 0.25)
+    p.setdefault("emr_overhead", {
+        "Front Desk":0.5,"Nurse":0.5,"NurseProtocol":0.5,"Provider":0.5,"Back Office":0.5
+    })
+
+    # Loop knobs (ensure all present)
+    for key, default in [
+        ("p_fd_insuff", 0.05), ("max_fd_loops", 3), ("fd_loop_delay", 30.0),
+        ("p_nurse_insuff", 0.05), ("max_nurse_loops", 2),
+        ("p_provider_insuff", 0.0), ("max_provider_loops", 0), ("provider_loop_delay", 15.0),
+        ("p_backoffice_insuff", 0.0), ("max_backoffice_loops", 0), ("backoffice_loop_delay", 15.0),
+    ]:
+        p.setdefault(key, default)
+
+    # Service means (ensure present)
+    for key, default in [
+        ("svc_frontdesk", 3.0), ("svc_nurse_protocol", 2.0), ("svc_nurse", 4.0),
+        ("svc_provider", 6.0), ("svc_backoffice", 5.0),
+    ]:
+        p.setdefault(key, default)
+
+    # Staffing / hours (defensive)
+    p.setdefault("frontdesk_cap", 1)
+    p.setdefault("nurse_cap", 1)
+    p.setdefault("provider_cap", 1)
+    p.setdefault("backoffice_cap", 1)
+    p.setdefault("open_minutes", 8 * 60)
+    p.setdefault("sim_minutes", 24 * 60)
+
+    return p
+
+
 # -------- STEP 2: RUN & RESULTS --------
 else:
     st.subheader("Step 2 — Run & Results")
@@ -551,7 +630,7 @@ else:
         random.seed(seed)
         np.random.seed(seed)
 
-        p = st.session_state["design"]
+        p = normalize_params(dict(st.session_state["design"]))  # copy + fill missing keys
         metrics = Metrics()
         env = simpy.Environment()
         system = CHCSystem(env, p, metrics)
