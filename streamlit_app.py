@@ -645,3 +645,39 @@ elif st.session_state.wizard_step == 2:
 
         # Persist minimal results
         st.session_state["results"] = dict(util_df=util_df, loop_df=loop_df)
+
+defaults_typical = dict(
+    sim_days=1, open_hours=9, cv_speed=0.25,
+
+    frontdesk_cap=2, nurse_cap=2, provider_cap=2, backoffice_cap=1,
+
+    arrivals_per_hour_by_role={
+        "Front Desk": 15,
+        "Nurse": 3,
+        "Provider": 1,
+        "Back Office": 1,
+    },
+
+    svc_frontdesk=3.0,
+    svc_nurse_protocol=2.5,
+    svc_nurse=5.0,
+    svc_provider=7.0,
+    svc_backoffice=6.0,
+
+    p_protocol=0.45,
+
+    p_fd_insuff=0.07,  max_fd_loops=3,  fd_loop_delay=25.0,
+    p_nurse_insuff=0.06, max_nurse_loops=2,
+    p_provider_insuff=0.02, max_provider_loops=1, provider_loop_delay=20.0,
+    p_backoffice_insuff=0.02, max_backoffice_loops=1, backoffice_loop_delay=20.0,
+
+    emr_overhead={"Front Desk":0.6,"Nurse":0.7,"NurseProtocol":0.5,"Provider":0.8,"Back Office":0.6},
+    dist_role={"Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential","Provider":"exponential","Back Office":"exponential"},
+
+    route_matrix={
+        "Front Desk": {"Front Desk":0.00,"Nurse":0.60,"Provider":0.05,"Back Office":0.05,"Done":0.30},
+        "Nurse":      {"Front Desk":0.08,"Nurse":0.00,"Provider":0.35,"Back Office":0.07,"Done":0.50},
+        "Provider":   {"Front Desk":0.00,"Nurse":0.10,"Provider":0.00,"Back Office":0.15,"Done":0.75},
+        "Back Office":{"Front Desk":0.00,"Nurse":0.05,"Provider":0.05,"Back Office":0.00,"Done":0.90},
+    }
+)
