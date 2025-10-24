@@ -348,6 +348,19 @@ def _init_ss(key, default):
         st.session_state[key] = default
     return st.session_state[key]
 
+# --- Locale-agnostic probability input (text, dot-decimal)
+def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None, disabled: bool = False) -> float:
+    if key not in st.session_state:
+        st.session_state[key] = f"{float(default):.2f}"
+    raw = st.text_input(label, value=st.session_state[key], key=key, help=help, disabled=disabled)
+    try:
+        val = float(str(raw).replace(",", "."))
+    except ValueError:
+        val = float(default)
+    val = max(0.0, min(1.0, val))
+    st.caption(f"{val:.2f}")
+    return val
+
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
 
@@ -385,13 +398,19 @@ if st.session_state.wizard_step == 1:
             help="Number of back-office staff on duty."
         )
 
-    # Flags update LIVE based on the current staffing selections
+    # Live flags based on staffing
     fd_off = (st.session_state.fd_cap == 0)
     nu_off = (st.session_state.nurse_cap == 0)
     pr_off = (st.session_state.provider_cap == 0)
     bo_off = (st.session_state.bo_cap == 0)
 
-    # --- Everything else INSIDE the form (captured on Save) ---
+    cap_map = {
+        "Front Desk": st.session_state.fd_cap,
+        "Nurse": st.session_state.nurse_cap,
+        "Provider": st.session_state.provider_cap,
+        "Back Office": st.session_state.bo_cap,
+    }
+
     with st.form("design_form", clear_on_submit=False):
         c1, c2 = st.columns([1,1])
         with c1:
@@ -457,97 +476,62 @@ if st.session_state.wizard_step == 1:
                                        help="Chance that the nurse protocol resolves the task without needing the provider.",
                                        disabled=nu_off)
 
-            st.markdown("#### Rework Loop Probabilities")
-            cL1, cL2 = st.columns(2)
-            with cL1:
-                p_fd_insuff = st.slider("Front Desk loop chance", 0.0, 0.6, _init_ss("p_fd_insuff", 0.05), 0.01,
-                                        help="Chance a Front Desk task needs to loop for missing information.",
-                                        disabled=fd_off)
-                max_fd_loops = st.slider("Max Front Desk loops", 0, 10, _init_ss("max_fd_loops", 3), 1,
-                                         help="Maximum number of Front Desk rework loops per task.",
-                                         disabled=fd_off)
-                fd_loop_delay = st.slider("Front Desk loop delay (min)", 0.0, 240.0, _init_ss("fd_loop_delay", 30.0), 5.0,
-                                          help="Delay spent collecting info before reworking at Front Desk.",
-                                          disabled=fd_off)
-                p_nurse_insuff = st.slider("Nurse loop chance", 0.0, 0.6, _init_ss("p_nurse_insuff", 0.05), 0.01,
-                                           help="Chance the nurse sends the task back for clarification.",
-                                           disabled=nu_off)
-                max_nurse_loops = st.slider("Max Nurse loops", 0, 10, _init_ss("max_nurse_loops", 2), 1,
-                                            help="Maximum number of Nurse rework loops per task.",
-                                            disabled=nu_off)
-            with cL2:
-                p_provider_insuff = st.slider("Provider loop chance", 0.0, 0.6, _init_ss("p_provider_insuff", 0.00), 0.01,
-                                              help="Chance a Provider needs to rework the same task.",
-                                              disabled=pr_off)
-                max_provider_loops = st.slider("Max Provider loops", 0, 10, _init_ss("max_provider_loops", 1), 1,
-                                               help="Maximum number of Provider rework loops per task.",
-                                               disabled=pr_off)
-                provider_loop_delay = st.slider("Provider loop delay (min)", 0.0, 240.0, _init_ss("provider_loop_delay", 15.0), 5.0,
-                                                help="Delay before provider rework can occur.",
-                                                disabled=pr_off)
-                p_backoffice_insuff = st.slider("Back Office loop chance", 0.0, 0.6, _init_ss("p_backoffice_insuff", 0.00), 0.01,
-                                                help="Chance Back Office needs to rework the same task.",
-                                                disabled=bo_off)
-                max_backoffice_loops = st.slider("Max Back Office loops", 0, 10, _init_ss("max_backoffice_loops", 1), 1,
-                                                 help="Maximum number of Back Office rework loops per task.",
-                                                 disabled=bo_off)
-                backoffice_loop_delay = st.slider("Back Office loop delay (min)", 0.0, 240.0, _init_ss("backoffice_loop_delay", 15.0), 5.0,
-                                                  help="Delay before back-office rework can occur.",
-                                                  disabled=bo_off)
-
-            # ----- Interaction matrix (routing) -----
-            st.markdown("#### Interaction matrix - Routing Probabilities")
-            st.caption("For each role, set probabilities of sending the task to another role or Done.")
+            st.markdown("#### Interaction matrix — Routing Probabilities")
+            st.caption("Self-routing is disabled. You cannot route to roles with 0 capacity.")
 
             route: Dict[str, Dict[str, float]] = {}
 
-            def prob_input(label: str, key: str, default: float = 0.0, help: str | None = None, disabled: bool = False) -> float:
-                if key not in st.session_state:
-                    st.session_state[key] = f"{float(default):.2f}"
-                raw = st.text_input(label, value=st.session_state[key], key=key, help=help, disabled=disabled)
-                try:
-                    val = float(str(raw).replace(",", "."))
-                except ValueError:
-                    val = float(default)
-                val = max(0.0, min(1.0, val))
-                st.caption(f"{val:.2f}")
-                return val
-
-            def route_row_ui(from_role: str, defaults: Dict[str, float], disabled: bool = False) -> Dict[str, float]:
+            # Build a row UI that omits self-target and disables targets with zero capacity
+            def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False) -> Dict[str, float]:
                 st.markdown(f"**{from_role} →**")
-                c1, c2, c3, c4, c5 = st.columns(5)
-                with c1:
-                    to_fd = prob_input(f"to FD ({from_role})", key=f"r_{from_role}_fd",
-                                       default=float(defaults.get("Front Desk", 0.2)),
-                                       help="Probability to route next to Front Desk.", disabled=disabled)
-                with c2:
-                    to_nu = prob_input(f"to Nurse ({from_role})", key=f"r_{from_role}_nu",
-                                       default=float(defaults.get("Nurse", 0.4)),
-                                       help="Probability to route next to Nurse/MA.", disabled=disabled)
-                with c3:
-                    to_pr = prob_input(f"to Provider ({from_role})", key=f"r_{from_role}_pr",
-                                       default=float(defaults.get("Provider", 0.2)),
-                                       help="Probability to route next to Provider.", disabled=disabled)
-                with c4:
-                    to_bo = prob_input(f"to Back Office ({from_role})", key=f"r_{from_role}_bo",
-                                       default=float(defaults.get("Back Office", 0.5)),
-                                       help="Probability to route next to Back Office.", disabled=disabled)
-                with c5:
-                    to_done = prob_input(f"to Done ({from_role})", key=f"r_{from_role}_done",
-                                         default=float(defaults.get(DONE, 0.2)),
-                                         help="Probability the task finishes after this role.", disabled=disabled)
-                return {"Front Desk": to_fd, "Nurse": to_nu, "Provider": to_pr, "Back Office": to_bo, DONE: to_done}
+                # Targets exclude the same role; include all other roles + DONE
+                targets = [r for r in ROLES if r != from_role] + [DONE]
+                # 5 columns max; create the right number dynamically
+                cols = st.columns(len(targets))
+                row: Dict[str, float] = {}
+                for i, tgt in enumerate(targets):
+                    tgt_disabled = disabled_source or (tgt in ROLES and cap_map[tgt] == 0)
+                    # Label names
+                    label_name = "Done" if tgt == DONE else tgt
+                    key_name = f"r_{from_role}_{'done' if tgt==DONE else label_name.replace(' ','_').lower()}"
+                    default_val = float(defaults.get(tgt, 0.0))
+                    with cols[i]:
+                        val = prob_input(
+                            f"to {label_name} ({from_role})",
+                            key=key_name,
+                            default=(0.0 if tgt_disabled else default_val),
+                            help=("Disabled: role has 0 staff" if (tgt in ROLES and cap_map[tgt]==0) else None),
+                            disabled=tgt_disabled
+                        )
+                        # If disabled, force value to 0 regardless of what's typed/stored
+                        if tgt_disabled:
+                            val = 0.0
+                    row[tgt] = val
+                return row
 
-            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled=fd_off)
-            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled=nu_off)
-            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled=pr_off)
-            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled=bo_off)
+            # Defaults without self-routing implied
+            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled_source=fd_off)
+            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled_source=nu_off)
+            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled_source=pr_off)
+            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled_source=bo_off)
 
         saved = st.form_submit_button("Save", use_container_width=True)
 
         if saved:
             open_minutes = int(open_hours * MIN_PER_HOUR)
             sim_minutes = int(sim_days * DAY_MIN)
+
+            # ---- Sanitize routing matrix on Save ----
+            # 1) Remove/zero self routes
+            for r in ROLES:
+                if r in route:
+                    route[r].pop(r, None)     # remove key if present
+            # 2) Zero routes that point to roles with zero capacity
+            for r in ROLES:
+                if r in route:
+                    for tgt in list(route[r].keys()):
+                        if tgt in ROLES and cap_map[tgt] == 0:
+                            route[r][tgt] = 0.0
 
             # build and store the design dict using LIVE staffing values
             st.session_state["design"] = dict(
