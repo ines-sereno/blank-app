@@ -390,33 +390,37 @@ if st.session_state.wizard_step == 1:
     When you click **Save**, your configuration will be used to simulate a typical clinic day and measure utilization and rework rates.
     """)
 
-    # --- Staffing moved to SIDEBAR (live) ---
-    with st.sidebar:
-        st.header("Staffing (on duty)")
-        fd_cap = st.number_input(
-            "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
-            help="Number of front desk staff simultaneously available."
-        )
-        nurse_cap = st.number_input(
-            "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
-            help="Number of nurses/medical assistants on duty."
-        )
-        provider_cap = st.number_input(
-            "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
-            help="Number of providers on duty."
-        )
-        bo_cap = st.number_input(
-            "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
-            help="Number of back-office staff on duty."
-        )
-
-    # Flags to grey out dependent controls instantly
-    fd_off = (fd_cap == 0)
-    nu_off = (nurse_cap == 0)
-    pr_off = (provider_cap == 0)
-    bo_off = (bo_cap == 0)
-
+    # --- Staffing MOVED INTO MAIN SCREEN (inside the form) ---
     with st.form("design_form", clear_on_submit=False):
+        st.markdown("### 👥 Staffing (on duty)")
+        cStaff1, cStaff2, cStaff3, cStaff4 = st.columns(4)
+        with cStaff1:
+            fd_cap = st.number_input(
+                "Front Desk staff", min_value=0, max_value=50, value=3, step=1, format="%d",
+                help="Number of front desk staff simultaneously available."
+            )
+        with cStaff2:
+            nurse_cap = st.number_input(
+                "Nurses / MAs", min_value=0, max_value=50, value=2, step=1, format="%d",
+                help="Number of nurses/medical assistants on duty."
+            )
+        with cStaff3:
+            provider_cap = st.number_input(
+                "Providers", min_value=0, max_value=50, value=1, step=1, format="%d",
+                help="Number of providers on duty."
+            )
+        with cStaff4:
+            bo_cap = st.number_input(
+                "Back Office staff", min_value=0, max_value=50, value=1, step=1, format="%d",
+                help="Number of back-office staff on duty."
+            )
+
+        # Flags to grey out dependent controls instantly (computed AFTER staffing)
+        fd_off = (fd_cap == 0)
+        nu_off = (nurse_cap == 0)
+        pr_off = (provider_cap == 0)
+        bo_off = (bo_cap == 0)
+
         c1, c2 = st.columns([1,1])
         with c1:
             sim_days = st.number_input(
@@ -587,7 +591,7 @@ if st.session_state.wizard_step == 1:
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes,
                 open_minutes=open_minutes,
-                # staffing (from sidebar)
+                # staffing (now from main form)
                 frontdesk_cap=fd_cap, nurse_cap=nurse_cap, provider_cap=provider_cap, backoffice_cap=bo_cap,
                 # arrivals by role (integers)
                 arrivals_per_hour_by_role={
