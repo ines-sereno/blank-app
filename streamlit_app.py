@@ -773,10 +773,10 @@ elif st.session_state.wizard_step == 2:
             same_day_prop = 0.0
 
         flow_df = pd.DataFrame([
-            {"Metric": "Turnaround time (avg, min)", "Value": f"{flow_avg:.1f}"},
-            {"Metric": "Turnaround time (median, min)", "Value": f"{flow_med:.1f}"},
+            {"Metric": "Average turnaround time (minutes)", "Value": f"{flow_avg:.1f}"},
             {"Metric": "Same-day completion", "Value": pct(same_day_prop)}
         ])
+
         time_at_role_df = pd.DataFrame(
             [{"Role": r, "Avg time at role (min) per completed task": f"{time_at_role_avg[r]:.1f}"} for r in active_roles]
         )
