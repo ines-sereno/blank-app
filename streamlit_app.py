@@ -447,14 +447,6 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     st.caption(f"{val:.2f}")
     return val
 
-def header_with_help(title: str, help_text: str):
-    c1, c2 = st.columns([1, 0.08])
-    with c1:
-        st.markdown(f"#### {title}")
-    with c2:
-        with st.expander("❓", expanded=False):
-            st.write(help_text)
-
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
 
@@ -468,13 +460,17 @@ if st.session_state.wizard_step == 1:
     st.markdown("### 👥 Staffing (on duty)")
     cStaff1, cStaff2, cStaff3, cStaff4 = st.columns(4)
     with cStaff1:
-        st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d")
+        st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
+                                                  help="Number of front desk staff simultaneously available.")
     with cStaff2:
-        st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d")
+        st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
+                                                     help="Number of nurses/medical assistants on duty.")
     with cStaff3:
-        st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d")
+        st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d",
+                                                        help="Number of providers on duty.")
     with cStaff4:
-        st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d")
+        st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
+                                                  help="Number of back-office staff on duty.")
 
     fd_off = (st.session_state.fd_cap == 0)
     nu_off = (st.session_state.nurse_cap == 0)
@@ -491,51 +487,106 @@ if st.session_state.wizard_step == 1:
     with st.form("design_form", clear_on_submit=False):
         # Full-width controls
         st.markdown("### Simulation horizon & variability")
-        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d")
-        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d")
-        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05)
+        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
+                                   help="Number of 24-hour days to include in the simulation.")
+        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
+                                     help="Clinic operating hours per day during which work can be performed.")
+        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05,
+                             help="How variable individual task times are around their mean (coefficient of variation).")
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
-            arr_fd = st.number_input("→ Front Desk", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=fd_off)
+            arr_fd = st.number_input("→ Front Desk", 0, 500, _init_ss("arr_fd", 15), 1, "%d",
+                                     help="Average number of tasks arriving to the Front Desk each hour.",
+                                     disabled=fd_off)
         with cA2:
-            arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off)
+            arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d",
+                                     help="Average number of tasks arriving directly to the Nurse/MA queue per hour.",
+                                     disabled=nu_off)
         with cA3:
-            arr_pr = st.number_input("→ Provider", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off)
+            arr_pr = st.number_input("→ Provider", 0, 500, _init_ss("arr_pr", 10), 1, "%d",
+                                     help="Average number of tasks arriving directly to the Provider per hour.",
+                                     disabled=pr_off)
         with cA4:
-            arr_bo = st.number_input("→ Back Office", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=bo_off)
+            arr_bo = st.number_input("→ Back Office", 0, 500, _init_ss("arr_bo", 5), 1, "%d",
+                                     help="Average number of tasks arriving directly to the Back Office per hour.",
+                                     disabled=bo_off)
 
         with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
             st.markdown("#### Service times (mean minutes)")
             cS1, cS2 = st.columns(2)
             with cS1:
-                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off)
-                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off)
-                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off)
+                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5,
+                                          help="Average time to process a task at the Front Desk.",
+                                          disabled=fd_off)
+                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5,
+                                               help="Average time when a task is handled entirely by standing nurse protocol.",
+                                               disabled=nu_off)
+                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5,
+                                      help="Average time for a standard nurse/MA task (non-protocol).",
+                                      disabled=nu_off)
             with cS2:
-                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off)
-                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
-                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
+                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5,
+                                         help="Average time for a provider to complete their part of a task.",
+                                         disabled=pr_off)
+                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5,
+                                           help="Average time for back-office processing.",
+                                           disabled=bo_off)
+                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05,
+                                       help="Chance that the nurse protocol resolves the task without needing the provider.",
+                                       disabled=nu_off)
 
-            # Loops
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
-                p_fd_insuff = st.slider("Front Desk: probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=fd_off)
-                max_fd_loops = st.number_input("Front Desk: max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=fd_off)
-                fd_loop_delay = st.slider("Front Desk: rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=fd_off)
+                p_fd_insuff = st.slider("Front Desk: probability of missing info", 0.0, 1.0,
+                                        _init_ss("p_fd_insuff", 0.15), 0.01,
+                                        help="Per pass: probability that Front Desk triggers a rework cycle.",
+                                        disabled=fd_off)
+                max_fd_loops = st.number_input("Front Desk: max loops", 0, 10,
+                                               _init_ss("max_fd_loops", 2), 1, "%d",
+                                               help="Cap on the number of FD rework cycles per task.",
+                                               disabled=fd_off)
+                fd_loop_delay = st.slider("Front Desk: rework delay (min)", 0.0, 60.0,
+                                          _init_ss("fd_loop_delay", 5.0), 0.5,
+                                          help="Delay between discovering missing info and retrying at FD.",
+                                          disabled=fd_off)
 
-                p_nurse_insuff = st.slider("Nurse: probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=nu_off)
-                max_nurse_loops = st.number_input("Nurse: max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=nu_off)
+                p_nurse_insuff = st.slider("Nurse: probability of insufficient info", 0.0, 1.0,
+                                           _init_ss("p_nurse_insuff", 0.10), 0.01,
+                                           help="Per pass: probability that Nurse work requires rework.",
+                                           disabled=nu_off)
+                max_nurse_loops = st.number_input("Nurse: max loops", 0, 10,
+                                                  _init_ss("max_nurse_loops", 2), 1, "%d",
+                                                  help="Cap on the number of Nurse rework cycles per task.",
+                                                  disabled=nu_off)
             with cL2:
-                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off)
-                max_provider_loops = st.number_input("Provider: max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off)
-                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off)
+                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0,
+                                              _init_ss("p_provider_insuff", 0.08), 0.01,
+                                              help="Per pass: probability that Provider requires rework.",
+                                              disabled=pr_off)
+                max_provider_loops = st.number_input("Provider: max loops", 0, 10,
+                                                     _init_ss("max_provider_loops", 2), 1, "%d",
+                                                     help="Cap on the number of Provider rework cycles per task.",
+                                                     disabled=pr_off)
+                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0,
+                                                _init_ss("provider_loop_delay", 5.0), 0.5,
+                                                help="Delay before Provider rechecks the task.",
+                                                disabled=pr_off)
 
-                p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off)
-                max_backoffice_loops = st.number_input("Back Office: max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=bo_off)
-                backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off)
+                p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0,
+                                                _init_ss("p_backoffice_insuff", 0.05), 0.01,
+                                                help="Per pass: probability that Back Office requires rework.",
+                                                disabled=bo_off)
+                max_backoffice_loops = st.number_input("Back Office: max loops", 0, 10,
+                                                       _init_ss("max_backoffice_loops", 2), 1, "%d",
+                                                       help="Cap on the number of Back Office rework cycles per task.",
+                                                       disabled=bo_off)
+                backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0,
+                                                  _init_ss("backoffice_loop_delay", 5.0), 0.5,
+                                                  help="Delay before Back Office rechecks the task.",
+                                                  disabled=bo_off)
 
             st.markdown("#### Interaction matrix — Routing Probabilities")
             st.caption("Self-routing is disabled. You cannot route to roles with 0 capacity.")
@@ -556,7 +607,7 @@ if st.session_state.wizard_step == 1:
                             f"to {label_name} ({from_role})",
                             key=key_name,
                             default=(0.0 if tgt_disabled else default_val),
-                            help=("Disabled: role has 0 staff" if (tgt in ROLES and cap_map[tgt]==0) else None),
+                            help="Routing probability from this role to the target.",
                             disabled=tgt_disabled
                         )
                         if tgt_disabled:
@@ -687,7 +738,7 @@ elif st.session_state.wizard_step == 2:
         loop_df = pd.DataFrame([{"Role": r, "Loop Count": loop_counts[r]} for r in active_roles if r in loop_counts])
 
         # =========================
-        # NEW: KPI computations
+        # KPI computations
         # =========================
 
         # A) Flow time metrics
@@ -698,9 +749,7 @@ elif st.session_state.wizard_step == 2:
             tt = np.array([comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids])
             flow_avg = float(np.mean(tt))
             flow_med = float(np.median(tt))
-            # Average time spent at each role (mins per completed task)
             time_at_role_avg = {r: (metrics.service_time_sum[r] / len(done_ids)) for r in ROLES}
-            # Same-day completion proportion
             same_day = 0
             for k in done_ids:
                 a = arr_times.get(k, 0)
@@ -722,7 +771,7 @@ elif st.session_state.wizard_step == 2:
             [{"Role": r, "Avg time at role (min) per completed task": f"{time_at_role_avg[r]:.1f}"} for r in active_roles]
         )
 
-        # B) Queue metrics (averages & max over monitoring snapshots)
+        # B) Queue metrics
         q_avg = {r: (np.mean(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0.0) for r in ROLES}
         q_max = {r: (np.max(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0) for r in ROLES}
         queue_df = pd.DataFrame(
@@ -730,7 +779,6 @@ elif st.session_state.wizard_step == 2:
         )
 
         # C) Rework metrics
-        # % tasks that required ANY rework: detect by presence of *_INSUFF or *_RECHECK_* events
         rework_tasks = set()
         for t, name, step, note, _arr in metrics.events:
             if step.endswith("INSUFF") or "RECHECK" in step:
@@ -739,7 +787,6 @@ elif st.session_state.wizard_step == 2:
         rework_overview_df = pd.DataFrame([
             {"Metric": "% tasks with any rework", "Value": pct(rework_pct)}
         ])
-        # Where loops originate — counts & %
         loop_by_role_counts = {
             "Front Desk": metrics.loop_fd_insufficient,
             "Nurse": metrics.loop_nurse_insufficient,
@@ -759,18 +806,15 @@ elif st.session_state.wizard_step == 2:
             start_t = d * DAY_MIN
             end_t = (d + 1) * DAY_MIN
 
-            # arrivals & completed during the day
             arrivals_today = sum(1 for k, at in arr_times.items() if start_t <= at < end_t)
             completed_today = sum(1 for k, ct in comp_times.items() if start_t <= ct < end_t)
 
-            # backlog at start: arrived before start and not yet completed by start
             from_prev = sum(
                 1
                 for k, at in arr_times.items()
                 if at < start_t and (k not in comp_times or comp_times[k] >= start_t)
             )
 
-            # backlog at end: arrived by end and not completed by end (i.e., carry forward)
             for_next = sum(
                 1
                 for k, at in arr_times.items()
@@ -787,53 +831,58 @@ elif st.session_state.wizard_step == 2:
 
         throughput_full_df = pd.DataFrame(daily_rows)
 
-        # ── RENDER (with tiny "?" help by each section) ────────────────────────
+        # ── RENDER with hover tooltips ──────────────────────────────────────────
         # 1) Flow time metrics
-        header_with_help(
-            "Flow time metrics",
-            "- **Turnaround time**: arrival → completion (mins, avg/median)\n"
-            "- **Same-day completion**: % completed within the same calendar day of arrival\n"
-            "- **Time at role**: average service minutes per completed task at each role"
+        st.markdown("#### Flow time metrics")
+        st.dataframe(
+            flow_df, use_container_width=True,
+            help="• Turnaround time = arrival → completion (minutes, avg/median)\n"
+                 "• Same-day completion = % completed within same calendar day of arrival"
         )
-        st.dataframe(flow_df, use_container_width=True)
-        st.dataframe(time_at_role_df, use_container_width=True)
+        st.dataframe(
+            time_at_role_df, use_container_width=True,
+            help="Average service minutes spent at each role per completed task."
+        )
 
         # 2) Queue metrics
-        header_with_help(
-            "Queue metrics",
-            "- **Avg queue length**: average number of tasks waiting (sampled every simulated minute)\n"
-            "- **Max queue length**: peak queue size observed during the run"
+        st.markdown("#### Queue metrics")
+        st.dataframe(
+            queue_df, use_container_width=True,
+            help="Avg queue length = mean # waiting (sampled each simulated minute). "
+                 "Max queue length = peak # waiting observed."
         )
-        st.dataframe(queue_df, use_container_width=True)
 
         # 3) Rework metrics
-        header_with_help(
-            "Rework metrics",
-            "- **Any rework**: % of completed tasks that triggered at least one rework/insufficient-info cycle\n"
-            "- **Where loops originate**: distribution of loop counts by role"
+        st.markdown("#### Rework metrics")
+        st.dataframe(
+            rework_overview_df, use_container_width=True,
+            help="% of completed tasks that triggered at least one insufficient-info/rework cycle."
         )
-        st.dataframe(rework_overview_df, use_container_width=True)
-        st.dataframe(loop_origin_df, use_container_width=True)
+        st.dataframe(
+            loop_origin_df, use_container_width=True,
+            help="Counts and percentage share of rework loops by originating role."
+        )
 
-        # 4) Throughput
-        header_with_help(
-            "Throughput (daily)",
-            "- **Total tasks that day**: number of arrivals during that day\n"
-            "- **Completed tasks**: number finished during that day\n"
-            "- **Tasks from previous day**: backlog at day start\n"
-            "- **Tasks for next day**: backlog carried to the next day"
+        # 4) Throughput (daily consolidated table)
+        st.markdown("#### Throughput (daily)")
+        st.dataframe(
+            throughput_full_df, use_container_width=True,
+            help="Daily view:\n"
+                 "• Total tasks that day = arrivals during that day\n"
+                 "• Completed tasks = completions during that day\n"
+                 "• Tasks from previous day = backlog at day start\n"
+                 "• Tasks for next day = backlog carried to the next day"
         )
-        st.dataframe(throughput_full_df, use_container_width=True)
 
-        # Utilization at the end (unchanged content, but shown after KPIs if you prefer)
-        header_with_help(
-            "Utilization (%)",
-            "Share of available open time spent in service (per role and overall)."
+        # Utilization (%)
+        st.markdown("#### Utilization (%)")
+        st.dataframe(
+            util_df, use_container_width=True,
+            help="Share of available open time spent in service (per role and overall)."
         )
-        st.dataframe(util_df, use_container_width=True)
         # ───────────────────────────────────────────────────────────────────────
 
-        # Persist results (update keys as needed)
+        # Persist results
         st.session_state["results"] = dict(
             util_df=util_df,
             queue_df=queue_df,
@@ -843,4 +892,3 @@ elif st.session_state.wizard_step == 2:
             loop_origin_df=loop_origin_df,
             throughput_full_df=throughput_full_df,
         )
-
