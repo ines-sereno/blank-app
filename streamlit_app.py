@@ -424,6 +424,9 @@ if "design" not in st.session_state:
     st.session_state["design"] = None
 if "design_saved" not in st.session_state:
     st.session_state.design_saved = False
+# NEW: track if user has run the simulation (to toggle process preview dropdown)
+if "ran" not in st.session_state:
+    st.session_state.ran = False
 
 def go_next():
     st.session_state.wizard_step = min(2, st.session_state.wizard_step + 1)
@@ -680,16 +683,23 @@ elif st.session_state.wizard_step == 2:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
 
-    # Process diagram
-    st.markdown("### Process preview")
-    st.caption("Live view of staffing, routing, nurse protocol, and loop settings based on your saved design.")
+    # Process diagram (inline before run; collapses after run)
     dot = build_process_graph(st.session_state["design"])
-    st.graphviz_chart(dot, use_container_width=False)
+    if not st.session_state.ran:
+        st.markdown("### Process preview")
+        st.caption("Live view of staffing, routing, nurse protocol, and loop settings based on your saved design.")
+        st.graphviz_chart(dot, use_container_width=False)
+    else:
+        with st.expander("Process preview (click to expand)", expanded=False):
+            st.graphviz_chart(dot, use_container_width=False)
 
     seed = st.number_input("Random seed", 0, 999999, 42, 1, "%d", help="Seed for reproducibility.")
     run = st.button("Run Simulation", type="primary", use_container_width=True)
 
     if run:
+        # mark as ran → collapse diagram on re-render
+        st.session_state.ran = True
+
         random.seed(seed)
         np.random.seed(seed)
 
@@ -831,55 +841,23 @@ elif st.session_state.wizard_step == 2:
 
         throughput_full_df = pd.DataFrame(daily_rows)
 
-        # ── RENDER with hover tooltips ──────────────────────────────────────────
-        # 1) Flow time metrics
+        # ── RENDER (simple headers, no hover helpers) ──────────────────────────
         st.markdown("#### Flow time metrics")
-        st.dataframe(
-            flow_df, use_container_width=True,
-            help="• Turnaround time = arrival → completion (minutes, avg/median)\n"
-                 "• Same-day completion = % completed within same calendar day of arrival"
-        )
-        st.dataframe(
-            time_at_role_df, use_container_width=True,
-            help="Average service minutes spent at each role per completed task."
-        )
+        st.dataframe(flow_df, use_container_width=True)
+        st.dataframe(time_at_role_df, use_container_width=True)
 
-        # 2) Queue metrics
         st.markdown("#### Queue metrics")
-        st.dataframe(
-            queue_df, use_container_width=True,
-            help="Avg queue length = mean # waiting (sampled each simulated minute). "
-                 "Max queue length = peak # waiting observed."
-        )
+        st.dataframe(queue_df, use_container_width=True)
 
-        # 3) Rework metrics
         st.markdown("#### Rework metrics")
-        st.dataframe(
-            rework_overview_df, use_container_width=True,
-            help="% of completed tasks that triggered at least one insufficient-info/rework cycle."
-        )
-        st.dataframe(
-            loop_origin_df, use_container_width=True,
-            help="Counts and percentage share of rework loops by originating role."
-        )
+        st.dataframe(rework_overview_df, use_container_width=True)
+        st.dataframe(loop_origin_df, use_container_width=True)
 
-        # 4) Throughput (daily consolidated table)
         st.markdown("#### Throughput (daily)")
-        st.dataframe(
-            throughput_full_df, use_container_width=True,
-            help="Daily view:\n"
-                 "• Total tasks that day = arrivals during that day\n"
-                 "• Completed tasks = completions during that day\n"
-                 "• Tasks from previous day = backlog at day start\n"
-                 "• Tasks for next day = backlog carried to the next day"
-        )
+        st.dataframe(throughput_full_df, use_container_width=True)
 
-        # Utilization (%)
         st.markdown("#### Utilization (%)")
-        st.dataframe(
-            util_df, use_container_width=True,
-            help="Share of available open time spent in service (per role and overall)."
-        )
+        st.dataframe(util_df, use_container_width=True)
         # ───────────────────────────────────────────────────────────────────────
 
         # Persist results
