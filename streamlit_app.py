@@ -554,6 +554,50 @@ def _all_runs_workbook(runs: list, engine: str | None = None) -> dict:
                 _w("Utilization", r["util_df"])
         return {"bytes": bio.getvalue(), "mime": "application/zip", "ext": "zip"}
 
+def _runlog_workbook(events: list, engine: str | None = None) -> dict:
+    """
+    Build a single-sheet Excel file with the DES run log.
+    events: list of tuples (time_min, task_id, step_code, note, arrival_time_min)
+    Returns dict: {"bytes": ..., "mime": ..., "ext": "..."}
+    """
+    if engine is None:
+        engine = _excel_engine()
+
+    # Build a DataFrame with helpful columns
+    cols = ["Time (min)", "Task", "Step", "Step label", "Note", "Arrival time (min)", "Day"]
+    rows = []
+    for t, name, step, note, arr in events:
+        rows.append([
+            float(t),
+            name,
+            step,
+            pretty_step(step),
+            note,
+            (float(arr) if arr is not None else None),
+            int(t // DAY_MIN)
+        ])
+    import pandas as pd
+    df = pd.DataFrame(rows, columns=cols)
+
+    from io import BytesIO
+    if engine:
+        bio = BytesIO()
+        with pd.ExcelWriter(bio, engine=engine) as xw:
+            df.to_excel(xw, index=False, sheet_name="RunLog")
+        return {
+            "bytes": bio.getvalue(),
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "ext": "xlsx",
+        }
+    else:
+        # Require Excel engine (matches your preference to avoid CSV zips)
+        st.error(
+            "Excel export requires an engine. Add `xlsxwriter` (recommended) or `openpyxl` "
+            "to your environment and rerun."
+        )
+        return {"bytes": b"", "mime": "application/octet-stream", "ext": "xlsx"}
+
+
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
 
@@ -1024,6 +1068,8 @@ elif st.session_state.wizard_step == 2:
             "events": metrics.events,
         }
 
+        runlog_pkg = _runlog_workbook(metrics.events, engine=_excel_engine())
+
         cols_save = st.columns([1,1])
         with cols_save[0]:
             save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
@@ -1037,6 +1083,14 @@ elif st.session_state.wizard_step == 2:
                 mime=single_pkg["mime"],
                 use_container_width=True
             )
+
+        st.download_button(
+            "Download run log (Excel)",
+            data=runlog_pkg["bytes"],
+            file_name=f"{run_package['name']} - RunLog.{runlog_pkg['ext']}",
+            mime=runlog_pkg["mime"],
+            use_container_width=True
+        )
 
         if save_btn:
             st.session_state.saved_runs.append(run_package)
