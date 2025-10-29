@@ -476,6 +476,37 @@ if st.session_state.wizard_step == 1:
                                        help="Chance that the nurse protocol resolves the task without needing the provider.",
                                        disabled=nu_off)
 
+            # ---------------- NEW: Loops (rework) inputs to prevent NameError ----------------
+            st.markdown("#### Loops (rework probabilities, caps, and delays)")
+            cL1, cL2 = st.columns(2)
+            with cL1:
+                p_fd_insuff = st.slider("Front Desk: probability of missing info", 0.0, 1.0,
+                                        _init_ss("p_fd_insuff", 0.15), 0.01, disabled=fd_off)
+                max_fd_loops = st.number_input("Front Desk: max loops", min_value=0, max_value=10,
+                                               value=_init_ss("max_fd_loops", 2), step=1, format="%d", disabled=fd_off)
+                fd_loop_delay = st.slider("Front Desk: rework delay (min)", 0.0, 60.0,
+                                          _init_ss("fd_loop_delay", 5.0), 0.5, disabled=fd_off)
+
+                p_nurse_insuff = st.slider("Nurse: probability of insufficient info", 0.0, 1.0,
+                                           _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=nu_off)
+                max_nurse_loops = st.number_input("Nurse: max loops", min_value=0, max_value=10,
+                                                  value=_init_ss("max_nurse_loops", 2), step=1, format="%d", disabled=nu_off)
+            with cL2:
+                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0,
+                                              _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off)
+                max_provider_loops = st.number_input("Provider: max loops", min_value=0, max_value=10,
+                                                     value=_init_ss("max_provider_loops", 2), step=1, format="%d", disabled=pr_off)
+                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0,
+                                                _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off)
+
+                p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0,
+                                                _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off)
+                max_backoffice_loops = st.number_input("Back Office: max loops", min_value=0, max_value=10,
+                                                       value=_init_ss("max_backoffice_loops", 2), step=1, format="%d", disabled=bo_off)
+                backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0,
+                                                  _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off)
+            # ---------------- END NEW ----------------
+
             st.markdown("#### Interaction matrix — Routing Probabilities")
             st.caption("Self-routing is disabled. You cannot route to roles with 0 capacity.")
 
@@ -555,7 +586,7 @@ if st.session_state.wizard_step == 1:
                 dist_role={"Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential","Provider":"exponential","Back Office":"exponential"},
                 cv_speed=cv_speed,
                 emr_overhead={"Front Desk":0.5,"Nurse":0.5,"NurseProtocol":0.5,"Provider":0.5,"Back Office":0.5},
-                # loops
+                # ---------------- wired loop params (were previously undefined) ----------------
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
                 p_provider_insuff=p_provider_insuff, max_provider_loops=max_provider_loops, provider_loop_delay=provider_loop_delay,
