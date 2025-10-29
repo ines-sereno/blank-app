@@ -404,12 +404,11 @@ def build_process_graph(p: Dict) -> str:
 
     lines += [
         '  subgraph cluster_legend {',
-        '    label="Legend"; fontsize=11; color="#CCCCCC";',
-        '    l1 [shape=plaintext, label="cap = capacity"];',
-        '    l2 [shape=plaintext, label="svc = mean service time"];',
-        '    l3 [shape=plaintext, label="Solid arrow = routing probability"];',
-        '    l4 [shape=plaintext, label="Dashed arrow = loop probability"];',
-        '    l5 [shape=plaintext, label="Double circle = Done"];',
+        '    label="Legend"; fontsize=14; color="#DDDDDD"; fontname="Helvetica";',
+        '    l1 [shape=plaintext, fontsize=12, label="cap = capacity"];',
+        '    l2 [shape=plaintext, fontsize=12, label="svc = mean svc time"];',
+        '    l3 [shape=plaintext, fontsize=12, label="→ routing prob"];',
+        '    l4 [shape=plaintext, fontsize=12, label="↺ loop prob / max"];',
         '  }'
     ]
 
