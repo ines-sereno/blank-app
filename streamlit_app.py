@@ -322,6 +322,114 @@ def monitor(env, s: CHCSystem):
             s.m.queues[r].append(len(res.queue) if res is not None else 0)
         yield env.timeout(1)
 
+def _fmt_pct(x: float) -> str:
+    try:
+        return f"{100*float(x):.0f}%"
+    except:
+        return "0%"
+
+def build_process_graph(p: Dict) -> str:
+    """
+    Build a Graphviz DOT graph summarizing the configured process:
+    - Node: Role (capacity, mean svc time)
+    - Solid edges: routing probabilities
+    - Dashed self-edges: loop probabilities (+ max loops)
+    """
+    # Safe getters
+    cap = {
+        "Front Desk": p.get("frontdesk_cap", 0),
+        "Nurse": p.get("nurse_cap", 0),
+        "Provider": p.get("provider_cap", 0),
+        "Back Office": p.get("backoffice_cap", 0),
+    }
+    svc = {
+        "Front Desk": p.get("svc_frontdesk", 0.0),
+        "Nurse": p.get("svc_nurse", 0.0),
+        "Provider": p.get("svc_provider", 0.0),
+        "Back Office": p.get("svc_backoffice", 0.0),
+    }
+    svc_proto = p.get("svc_nurse_protocol", None)
+    p_protocol = p.get("p_protocol", None)
+
+    # Loops
+    loops = {
+        "Front Desk":  (p.get("p_fd_insuff", 0.0),        p.get("max_fd_loops", 0)),
+        "Nurse":       (p.get("p_nurse_insuff", 0.0),     p.get("max_nurse_loops", 0)),
+        "Provider":    (p.get("p_provider_insuff", 0.0),  p.get("max_provider_loops", 0)),
+        "Back Office": (p.get("p_backoffice_insuff", 0.0),p.get("max_backoffice_loops", 0)),
+    }
+
+    route = p.get("route_matrix", {})
+    roles = ["Front Desk", "Nurse", "Provider", "Back Office"]
+    DONE = "Done"
+
+    # Graph header (left-to-right)
+    lines = [
+        'digraph CHC {',
+        '  rankdir=LR;',
+        '  fontsize=12;',
+        '  node [shape=roundrect, style=filled, fillcolor="#F7F7F7", color="#888", fontname="Helvetica"];',
+        '  edge [color="#666", arrowsize=0.8, fontname="Helvetica"];'
+    ]
+
+    # Nodes for roles
+    for r in roles:
+        if cap.get(r, 0) <= 0:
+            # Still show the node (dimmed) so users see it exists but has 0 staff
+            lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min", fillcolor="#EFEFEF"];')
+        else:
+            lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min"];')
+
+    # Nurse protocol note (as a small annotation node) if set
+    if p_protocol is not None and svc_proto is not None and cap.get("Nurse", 0) > 0:
+        proto_label = f'Nurse Protocol\\np={_fmt_pct(p_protocol)}\\nsvc≈{svc_proto:.1f} min'
+        lines += [
+            '  "NurseProto" [shape=note, fillcolor="#FFFBE6", color="#B59F3B", label="%s"];' % proto_label,
+            '  "Nurse" -> "NurseProto" [style=dotted, label=" info "];'
+        ]
+
+    # Done node
+    lines.append('  "Done" [shape=doublecircle, fillcolor="#E8F5E9", color="#5E8D5B"];')
+
+    # Routing edges (solid)
+    for src, row in route.items():
+        for tgt, prob in row.items():
+            try:
+                prob_f = float(prob)
+            except:
+                prob_f = 0.0
+            if prob_f <= 0:
+                continue
+            label = _fmt_pct(prob_f)
+            # If target role has 0 capacity, it should already be zeroed in config; still guard
+            lines.append(f'  "{src}" -> "{tgt}" [label="{label}"];')
+
+    # Loop edges (dashed self-loops)
+    for r, (p_loop, max_loops) in loops.items():
+        try:
+            p_f = float(p_loop)
+        except:
+            p_f = 0.0
+        if p_f > 0 and cap.get(r, 0) >= 0:
+            lines.append(
+                f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop { _fmt_pct(p_f) } / max {max_loops}"];'
+            )
+
+    # Legend cluster
+    lines += [
+        '  subgraph cluster_legend {',
+        '    label="Legend"; fontsize=11; color="#CCCCCC";',
+        '    l1 [shape=plaintext, label="Node: Role (capacity, mean service time)"];',
+        '    l2 [shape=plaintext, label="Solid arrow: routing probability"];',
+        '    l3 [shape=plaintext, label="Dashed self-arrow: loop prob / max loops"];',
+        '    l4 [shape=plaintext, label="Double circle: Done"];',
+        '  }'
+    ]
+
+    lines.append('}')
+    return "\n".join(lines)
+
+
 # =============================
 # Streamlit UI (2-step wizard, no graphs)
 # =============================
@@ -610,6 +718,11 @@ elif st.session_state.wizard_step == 2:
     if not st.session_state["design"]:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
+
+    st.markdown("### Process preview")
+    st.caption("This diagram reflects your current configuration: staffing, routing probabilities, and loop/rework settings.")
+    dot = build_process_graph(st.session_state["design"])
+    st.graphviz_chart(dot, use_container_width=True)
 
     seed = st.number_input("Random seed", min_value=0, max_value=999999, value=42, step=1, format="%d",
                            help="Seed for the random number generator to reproduce results.")
