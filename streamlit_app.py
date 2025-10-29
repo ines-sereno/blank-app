@@ -332,6 +332,9 @@ def build_process_graph(p: Dict) -> str:
         except:
             return "0%"
 
+    # 🎨 tweak this to any hex you like
+    legend_fill = "#E9F7FF"  # soft blue; try "#FFF3E0" for soft orange, "#F3E8FF" for lilac, etc.
+
     cap = {
         "Front Desk": p.get("frontdesk_cap", 0),
         "Nurse": p.get("nurse_cap", 0),
@@ -362,16 +365,17 @@ def build_process_graph(p: Dict) -> str:
         'digraph CHC {',
         '  rankdir=LR;',
         '  fontsize=12;',
-        '  graph [size="10,4", nodesep=0.6, ranksep=0.8, overlap=false];',
+        '  graph [size="10,4", nodesep=0.6, ranksep=0.8, overlap=false, pad="0.1,0.1"];',
         '  node [shape=roundrect, style=filled, fillcolor="#F7F7F7", color="#888", fontname="Helvetica", fontsize=10];',
         '  edge [color="#666", arrowsize=0.8, fontname="Helvetica", fontsize=9];'
     ]
 
+    # Role nodes (dim if cap==0)
     for r in roles:
-        # Show nodes even if capacity is 0
         fill = "#EFEFEF" if cap.get(r, 0) <= 0 else "#F7F7F7"
         lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min", fillcolor="{fill}"];')
 
+    # Nurse protocol annotation
     if p_protocol is not None and svc_proto is not None and cap.get("Nurse", 0) >= 0:
         proto_label = f'Nurse Protocol\\np={_fmt_pct(p_protocol)}\\nsvc≈{svc_proto:.1f} min'
         lines += [
@@ -379,28 +383,30 @@ def build_process_graph(p: Dict) -> str:
             '  "Nurse" -> "NurseProto" [style=dotted, label=" info "];'
         ]
 
+    # Done sink
     lines.append('  "Done" [shape=doublecircle, fillcolor="#E8F5E9", color="#5E8D5B"];')
 
+    # Routing edges
     for src, row in route.items():
         for tgt, prob in row.items():
             try:
                 prob_f = float(prob)
             except:
                 prob_f = 0.0
-            if prob_f <= 0:
-                continue
-            lines.append(f'  "{src}" -> "{tgt}" [label="{_fmt_pct(prob_f)}"];')
+            if prob_f > 0:
+                lines.append(f'  "{src}" -> "{tgt}" [label="{_fmt_pct(prob_f)}"];')
 
+    # Loop self-edges
     for r, (p_loop, max_loops) in loops.items():
         try:
             p_f = float(p_loop)
         except:
             p_f = 0.0
         if p_f > 0:
-            lines.append(
-                f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];'
-            )
+            lines.append(f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];')
 
+    # ── Minimal textbox legend (top-left) ────────────────────────────────────────
+    # 1) The legend node itself (small rounded box with your custom bg color)
     lines += [
         f'  legend [shape=box, style="rounded,filled", fillcolor="{legend_fill}", color="#AFC8D8", fontsize=8, '
         '          label="cap = capacity\\nsvc = mean svc time\\n→ routing prob\\n↺ loop prob / max"];'
@@ -415,6 +421,7 @@ def build_process_graph(p: Dict) -> str:
 
     lines.append('}')
     return "\n".join(lines)
+
 
 # =============================
 # Streamlit UI (2-step wizard)
