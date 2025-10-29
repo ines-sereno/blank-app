@@ -412,22 +412,20 @@ if st.session_state.wizard_step == 1:
     }
 
     with st.form("design_form", clear_on_submit=False):
-        c1, c2 = st.columns(
-        with c1:
-            sim_days = st.number_input(
-                "Days to simulate", min_value=1, max_value=30, value=_init_ss("sim_days", 5),
-                step=1, format="%d",
-                help="Number of 24-hour days to include in the simulation."
-            )
-            open_hours = st.number_input(
-                "Hours open per day", min_value=1, max_value=24, value=_init_ss("open_hours", 10),
-                step=1, format="%d",
-                help="Clinic operating hours per day during which work can be performed."
-            )
-            cv_speed = st.slider(
-                "Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05,
-                help="How variable individual task times are around their mean (coefficient of variation)."
-            )
+        sim_days = st.number_input(
+            "Days to simulate", min_value=1, max_value=30, value=_init_ss("sim_days", 5),
+            step=1, format="%d",
+            help="Number of 24-hour days to include in the simulation."
+        )
+        open_hours = st.number_input(
+            "Hours open per day", min_value=1, max_value=24, value=_init_ss("open_hours", 10),
+            step=1, format="%d",
+            help="Clinic operating hours per day during which work can be performed."
+        )
+        cv_speed = st.slider(
+            "Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05,
+            help="How variable individual task times are around their mean (coefficient of variation)."
+        )
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
