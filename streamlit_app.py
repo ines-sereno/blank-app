@@ -320,7 +320,8 @@ def monitor(env, s: CHCSystem):
         s.m.time_stamps.append(env.now)
         for r in ROLES:
             res = s.role_to_res[r]
-            s.m.queues[r].append(len(res.queue) if res is not None else 0)
+            self_q = len(res.queue) if res is not None else 0
+            s.m.queues[r].append(self_q)
         yield env.timeout(1)
 
 # =============================
@@ -454,35 +455,104 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     st.caption(f"{val:.2f}")
     return val
 
-# ---- Download helpers ----
-def _workbook_from_run(run: dict) -> bytes:
-    """Create an Excel file (bytes) for a single intervention/run."""
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
-        run["flow_df"].to_excel(xw, index=False, sheet_name="Flow")
-        run["time_at_role_df"].to_excel(xw, index=False, sheet_name="TimeAtRole")
-        run["queue_df"].to_excel(xw, index=False, sheet_name="Queue")
-        run["rework_overview_df"].to_excel(xw, index=False, sheet_name="Rework")
-        run["loop_origin_df"].to_excel(xw, index=False, sheet_name="ReworkByRole")
-        run["throughput_full_df"].to_excel(xw, index=False, sheet_name="ThroughputDaily")
-        run["util_df"].to_excel(xw, index=False, sheet_name="Utilization")
-        run["summary_df"].to_excel(xw, index=False, sheet_name="Summary")
-    return bio.getvalue()
+# ---- Excel engine detector ----
+def _excel_engine():
+    """Return a working pandas ExcelWriter engine or None if unavailable."""
+    try:
+        import xlsxwriter  # noqa: F401
+        return "xlsxwriter"
+    except Exception:
+        try:
+            import openpyxl  # noqa: F401
+            return "openpyxl"
+        except Exception:
+            return None
 
-def _all_runs_workbook(runs: list) -> bytes:
-    """Create a single Excel with one Summary sheet (all runs) + per-run sheets."""
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
-        if runs:
-            comp = pd.concat([r["summary_df"] for r in runs], ignore_index=True)
-            comp.to_excel(xw, index=False, sheet_name="SummaryAll")
-        for r in runs:
-            name = r["name"][:28]  # Excel sheet name limit
-            r["summary_df"].to_excel(xw, index=False, sheet_name=f"{name}_Summary")
-            r["flow_df"].to_excel(xw, index=False, sheet_name=f"{name}_Flow")
-            r["queue_df"].to_excel(xw, index=False, sheet_name=f"{name}_Queue")
-            r["util_df"].to_excel(xw, index=False, sheet_name=f"{name}_Util")
-    return bio.getvalue()
+# ---- Download helpers (engine-aware) ----
+def _workbook_from_run(run: dict, engine: str | None = None) -> dict:
+    """
+    Build a file for a single run.
+    Returns dict: {"bytes": ..., "mime": ..., "ext": "..."}.
+    Prefers XLSX; falls back to ZIP of CSVs if no Excel engine.
+    """
+    if engine is None:
+        engine = _excel_engine()
+
+    if engine:
+        bio = BytesIO()
+        with pd.ExcelWriter(bio, engine=engine) as xw:
+            run["flow_df"].to_excel(xw, index=False, sheet_name="Flow")
+            run["time_at_role_df"].to_excel(xw, index=False, sheet_name="TimeAtRole")
+            run["queue_df"].to_excel(xw, index=False, sheet_name="Queue")
+            run["rework_overview_df"].to_excel(xw, index=False, sheet_name="Rework")
+            run["loop_origin_df"].to_excel(xw, index=False, sheet_name="ReworkByRole")
+            run["throughput_full_df"].to_excel(xw, index=False, sheet_name="ThroughputDaily")
+            run["util_df"].to_excel(xw, index=False, sheet_name="Utilization")
+            run["summary_df"].to_excel(xw, index=False, sheet_name="Summary")
+        return {
+            "bytes": bio.getvalue(),
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "ext": "xlsx",
+        }
+    else:
+        # Fallback: ZIP of CSVs (no extra dependencies)
+        import zipfile
+        bio = BytesIO()
+        with zipfile.ZipFile(bio, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            def _w(name, df):
+                z.writestr(f"{name}.csv", df.to_csv(index=False))
+            _w("Flow", run["flow_df"])
+            _w("TimeAtRole", run["time_at_role_df"])
+            _w("Queue", run["queue_df"])
+            _w("Rework", run["rework_overview_df"])
+            _w("ReworkByRole", run["loop_origin_df"])
+            _w("ThroughputDaily", run["throughput_full_df"])
+            _w("Utilization", run["util_df"])
+            _w("Summary", run["summary_df"])
+        return {"bytes": bio.getvalue(), "mime": "application/zip", "ext": "zip"}
+
+def _all_runs_workbook(runs: list, engine: str | None = None) -> dict:
+    """
+    Build a combined file for all saved runs.
+    Returns dict: {"bytes": ..., "mime": ..., "ext": "..."}.
+    """
+    if engine is None:
+        engine = _excel_engine()
+
+    if engine:
+        bio = BytesIO()
+        with pd.ExcelWriter(bio, engine=engine) as xw:
+            if runs:
+                comp = pd.concat([r["summary_df"] for r in runs], ignore_index=True)
+                comp.to_excel(xw, index=False, sheet_name="SummaryAll")
+            for r in runs:
+                name = r["name"][:28]  # Excel sheet name limit
+                r["summary_df"].to_excel(xw, index=False, sheet_name=f"{name}_Summary")
+                r["flow_df"].to_excel(xw, index=False, sheet_name=f"{name}_Flow")
+                r["queue_df"].to_excel(xw, index=False, sheet_name=f"{name}_Queue")
+                r["util_df"].to_excel(xw, index=False, sheet_name=f"{name}_Util")
+        return {
+            "bytes": bio.getvalue(),
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "ext": "xlsx",
+        }
+    else:
+        # Fallback: ZIP of CSVs, one folder per run (by name)
+        import zipfile
+        bio = BytesIO()
+        with zipfile.ZipFile(bio, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            if runs:
+                comp = pd.concat([r["summary_df"] for r in runs], ignore_index=True)
+                z.writestr("SummaryAll.csv", comp.to_csv(index=False))
+            for r in runs:
+                base = r["name"]
+                def _w(name, df):
+                    z.writestr(f"{base}/{name}.csv", df.to_csv(index=False))
+                _w("Summary", r["summary_df"])
+                _w("Flow", r["flow_df"])
+                _w("Queue", r["queue_df"])
+                _w("Utilization", r["util_df"])
+        return {"bytes": bio.getvalue(), "mime": "application/zip", "ext": "zip"}
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
@@ -868,7 +938,6 @@ elif st.session_state.wizard_step == 2:
         throughput_full_df = pd.DataFrame(daily_rows)
 
         # --- Build a one-row summary for comparisons ---
-        # Parse numbers from the dfs (strip %)
         def _to_float(s):
             if isinstance(s, (int, float, np.floating)):
                 return float(s)
@@ -879,7 +948,7 @@ elif st.session_state.wizard_step == 2:
                 return 0.0
 
         summary_row = {
-            "Name": "",  # fill after user names the run
+            "Name": "",
             "Avg turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Average turnaround time (minutes)","Value"].iloc[0]),
             "Median turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Turnaround time (median, min)","Value"].iloc[0]),
             "Same-day completion (%)": _to_float(flow_df.loc[flow_df["Metric"]=="Same-day completion","Value"].iloc[0]),
@@ -888,11 +957,10 @@ elif st.session_state.wizard_step == 2:
         }
         summary_df = pd.DataFrame([summary_row])
 
-        # ---- Name/save & downloads UI (before render, so name is above tables) ----
+        # ---- Name/save & downloads UI ----
         st.markdown("### Save / download")
         default_name = f"Intervention {len(st.session_state.saved_runs)+1}"
         scenario_name = st.text_input("Intervention name", value=default_name, help="Give this run a name to compare later.")
-        # Build the run package for download (and potential save)
         run_package = {
             "name": (scenario_name.strip() or default_name),
             "design": p,
@@ -911,12 +979,13 @@ elif st.session_state.wizard_step == 2:
         with cols_save[0]:
             save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
         with cols_save[1]:
-            single_bytes = _workbook_from_run(run_package)
+            engine = _excel_engine()
+            single_pkg = _workbook_from_run(run_package, engine=engine)
             st.download_button(
-                "Download current run (.xlsx)",
-                data=single_bytes,
-                file_name=f"{run_package['name']}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Download current run",
+                data=single_pkg["bytes"],
+                file_name=f"{run_package['name']}.{single_pkg['ext']}",
+                mime=single_pkg["mime"],
                 use_container_width=True
             )
 
@@ -924,7 +993,7 @@ elif st.session_state.wizard_step == 2:
             st.session_state.saved_runs.append(run_package)
             st.success(f"Saved intervention: **{run_package['name']}**")
 
-        # ── RENDER (simple headers) ────────────────────────────────────────────
+        # ── RENDER ────────────────────────────────────────────────────────────
         st.markdown("#### Flow time metrics")
         st.dataframe(flow_df, use_container_width=True)
         st.dataframe(time_at_role_df, use_container_width=True)
@@ -941,7 +1010,6 @@ elif st.session_state.wizard_step == 2:
 
         st.markdown("#### Utilization (%)")
         st.dataframe(util_df, use_container_width=True)
-        # ───────────────────────────────────────────────────────────────────────
 
         # ---- Compare saved interventions ----
         if len(st.session_state.saved_runs) >= 1:
@@ -956,17 +1024,16 @@ elif st.session_state.wizard_step == 2:
             comp_df = comp_df[cols]
             st.dataframe(comp_df, use_container_width=True)
 
-            # Download all
-            all_bytes = _all_runs_workbook(st.session_state.saved_runs)
+            all_pkg = _all_runs_workbook(st.session_state.saved_runs, engine=_excel_engine())
             st.download_button(
-                "Download all saved interventions (.xlsx)",
-                data=all_bytes,
-                file_name="interventions_all.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Download all saved interventions",
+                data=all_pkg["bytes"],
+                file_name=f"interventions_all.{all_pkg['ext']}",
+                mime=all_pkg["mime"],
                 use_container_width=True
             )
 
-        # Persist results (optional; unchanged)
+        # Persist results
         st.session_state["results"] = dict(
             util_df=util_df,
             queue_df=queue_df,
