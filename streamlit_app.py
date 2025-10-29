@@ -401,11 +401,17 @@ def build_process_graph(p: Dict) -> str:
                 f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];'
             )
 
-    # --- Minimal textbox legend (your requested style) ---
     lines += [
-        '  legend [shape=box, style="rounded,filled", fillcolor="#FAFAFA", color="#CCCCCC", fontsize=8, ',
+        f'  legend [shape=box, style="rounded,filled", fillcolor="{legend_fill}", color="#AFC8D8", fontsize=8, '
         '          label="cap = capacity\\nsvc = mean svc time\\n→ routing prob\\n↺ loop prob / max"];'
     ]
+    # 2) Nudge it to the top-left by ranking it first, and add a strong invisible
+    #    edge to the first role so layout keeps it in the upper-left corner.
+    lines += [
+        '  { rank=min; legend; }',
+        '  legend -> "Front Desk" [style=invis, weight=1000];'
+    ]
+    # ────────────────────────────────────────────────────────────────────────────
 
     lines.append('}')
     return "\n".join(lines)
