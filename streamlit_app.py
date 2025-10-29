@@ -322,12 +322,9 @@ def monitor(env, s: CHCSystem):
             s.m.queues[r].append(len(res.queue) if res is not None else 0)
         yield env.timeout(1)
 
-def _fmt_pct(x: float) -> str:
-    try:
-        return f"{100*float(x):.0f}%"
-    except:
-        return "0%"
-
+# =============================
+# Diagram builder (Graphviz DOT)
+# =============================
 def build_process_graph(p: Dict) -> str:
     def _fmt_pct(x: float) -> str:
         try:
@@ -371,9 +368,11 @@ def build_process_graph(p: Dict) -> str:
     ]
 
     for r in roles:
-        lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min"];')
+        # Show nodes even if capacity is 0
+        fill = "#EFEFEF" if cap.get(r, 0) <= 0 else "#F7F7F7"
+        lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min", fillcolor="{fill}"];')
 
-    if p_protocol is not None and svc_proto is not None and cap.get("Nurse", 0) > 0:
+    if p_protocol is not None and svc_proto is not None and cap.get("Nurse", 0) >= 0:
         proto_label = f'Nurse Protocol\\np={_fmt_pct(p_protocol)}\\nsvc≈{svc_proto:.1f} min'
         lines += [
             f'  "NurseProto" [shape=note, fillcolor="#FFFBE6", color="#B59F3B", label="{proto_label}", fontsize=9];',
@@ -402,7 +401,8 @@ def build_process_graph(p: Dict) -> str:
                 f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];'
             )
 
-     lines += [
+    # --- Minimal textbox legend (your requested style) ---
+    lines += [
         '  legend [shape=box, style="rounded,filled", fillcolor="#FAFAFA", color="#CCCCCC", fontsize=8, ',
         '          label="cap = capacity\\nsvc = mean svc time\\n→ routing prob\\n↺ loop prob / max"];'
     ]
@@ -410,9 +410,8 @@ def build_process_graph(p: Dict) -> str:
     lines.append('}')
     return "\n".join(lines)
 
-
 # =============================
-# Streamlit UI (2-step wizard, no graphs)
+# Streamlit UI (2-step wizard)
 # =============================
 st.set_page_config(page_title="CHC Workflow Simulator", layout="wide")
 st.title("CHC Workflow Simulator")
@@ -501,6 +500,8 @@ if st.session_state.wizard_step == 1:
     }
 
     with st.form("design_form", clear_on_submit=False):
+        # Full-width controls for horizon & variability
+        st.markdown("### Simulation horizon & variability")
         sim_days = st.number_input(
             "Days to simulate", min_value=1, max_value=30, value=_init_ss("sim_days", 5),
             step=1, format="%d",
@@ -563,7 +564,7 @@ if st.session_state.wizard_step == 1:
                                        help="Chance that the nurse protocol resolves the task without needing the provider.",
                                        disabled=nu_off)
 
-            # ---------------- NEW: Loops (rework) inputs to prevent NameError ----------------
+            # Loops (rework) inputs
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
@@ -592,7 +593,6 @@ if st.session_state.wizard_step == 1:
                                                        value=_init_ss("max_backoffice_loops", 2), step=1, format="%d", disabled=bo_off)
                 backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0,
                                                   _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off)
-            # ---------------- END NEW ----------------
 
             st.markdown("#### Interaction matrix — Routing Probabilities")
             st.caption("Self-routing is disabled. You cannot route to roles with 0 capacity.")
@@ -602,14 +602,11 @@ if st.session_state.wizard_step == 1:
             # Build a row UI that omits self-target and disables targets with zero capacity
             def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False) -> Dict[str, float]:
                 st.markdown(f"**{from_role} →**")
-                # Targets exclude the same role; include all other roles + DONE
                 targets = [r for r in ROLES if r != from_role] + [DONE]
-                # 5 columns max; create the right number dynamically
                 cols = st.columns(len(targets))
                 row: Dict[str, float] = {}
                 for i, tgt in enumerate(targets):
                     tgt_disabled = disabled_source or (tgt in ROLES and cap_map[tgt] == 0)
-                    # Label names
                     label_name = "Done" if tgt == DONE else tgt
                     key_name = f"r_{from_role}_{'done' if tgt==DONE else label_name.replace(' ','_').lower()}"
                     default_val = float(defaults.get(tgt, 0.0))
@@ -621,13 +618,11 @@ if st.session_state.wizard_step == 1:
                             help=("Disabled: role has 0 staff" if (tgt in ROLES and cap_map[tgt]==0) else None),
                             disabled=tgt_disabled
                         )
-                        # If disabled, force value to 0 regardless of what's typed/stored
                         if tgt_disabled:
                             val = 0.0
                     row[tgt] = val
                 return row
 
-            # Defaults without self-routing implied
             route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled_source=fd_off)
             route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled_source=nu_off)
             route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled_source=pr_off)
@@ -640,11 +635,9 @@ if st.session_state.wizard_step == 1:
             sim_minutes = int(sim_days * DAY_MIN)
 
             # ---- Sanitize routing matrix on Save ----
-            # 1) Remove/zero self routes
             for r in ROLES:
                 if r in route:
-                    route[r].pop(r, None)     # remove key if present
-            # 2) Zero routes that point to roles with zero capacity
+                    route[r].pop(r, None)  # remove self routes if present
             for r in ROLES:
                 if r in route:
                     for tgt in list(route[r].keys()):
@@ -673,7 +666,7 @@ if st.session_state.wizard_step == 1:
                 dist_role={"Front Desk":"normal","NurseProtocol":"normal","Nurse":"exponential","Provider":"exponential","Back Office":"exponential"},
                 cv_speed=cv_speed,
                 emr_overhead={"Front Desk":0.5,"Nurse":0.5,"NurseProtocol":0.5,"Provider":0.5,"Back Office":0.5},
-                # ---------------- wired loop params (were previously undefined) ----------------
+                # loops
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
                 p_provider_insuff=p_provider_insuff, max_provider_loops=max_provider_loops, provider_loop_delay=provider_loop_delay,
@@ -700,10 +693,12 @@ elif st.session_state.wizard_step == 2:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
 
+    # --- Process preview diagram ---
     st.markdown("### Process preview")
-    st.caption("This diagram reflects your current configuration: staffing, routing probabilities, and loop/rework settings.")
+    st.caption("Live view of staffing, routing, nurse protocol, and loop settings based on your saved design.")
     dot = build_process_graph(st.session_state["design"])
-    st.graphviz_chart(dot, use_container_width=True)
+    # keep a consistent size; do not stretch to container width
+    st.graphviz_chart(dot, use_container_width=False)
 
     seed = st.number_input("Random seed", min_value=0, max_value=999999, value=42, step=1, format="%d",
                            help="Seed for the random number generator to reproduce results.")
