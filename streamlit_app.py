@@ -412,7 +412,7 @@ if st.session_state.wizard_step == 1:
     }
 
     with st.form("design_form", clear_on_submit=False):
-        c1, c2 = st.columns([1,1])
+        c1, c2 = st.columns(
         with c1:
             sim_days = st.number_input(
                 "Days to simulate", min_value=1, max_value=30, value=_init_ss("sim_days", 5),
