@@ -329,13 +329,12 @@ def _fmt_pct(x: float) -> str:
         return "0%"
 
 def build_process_graph(p: Dict) -> str:
-    """
-    Build a Graphviz DOT graph summarizing the configured process:
-    - Node: Role (capacity, mean svc time)
-    - Solid edges: routing probabilities
-    - Dashed self-edges: loop probabilities (+ max loops)
-    """
-    # Safe getters
+    def _fmt_pct(x: float) -> str:
+        try:
+            return f"{100*float(x):.0f}%"
+        except:
+            return "0%"
+
     cap = {
         "Front Desk": p.get("frontdesk_cap", 0),
         "Nurse": p.get("nurse_cap", 0),
@@ -351,7 +350,6 @@ def build_process_graph(p: Dict) -> str:
     svc_proto = p.get("svc_nurse_protocol", None)
     p_protocol = p.get("p_protocol", None)
 
-    # Loops
     loops = {
         "Front Desk":  (p.get("p_fd_insuff", 0.0),        p.get("max_fd_loops", 0)),
         "Nurse":       (p.get("p_nurse_insuff", 0.0),     p.get("max_nurse_loops", 0)),
@@ -363,35 +361,27 @@ def build_process_graph(p: Dict) -> str:
     roles = ["Front Desk", "Nurse", "Provider", "Back Office"]
     DONE = "Done"
 
-    # Graph header (left-to-right)
     lines = [
         'digraph CHC {',
         '  rankdir=LR;',
         '  fontsize=12;',
-        '  node [shape=roundrect, style=filled, fillcolor="#F7F7F7", color="#888", fontname="Helvetica"];',
-        '  edge [color="#666", arrowsize=0.8, fontname="Helvetica"];'
+        '  graph [size="10,4", nodesep=0.6, ranksep=0.8, overlap=false];',
+        '  node [shape=roundrect, style=filled, fillcolor="#F7F7F7", color="#888", fontname="Helvetica", fontsize=10];',
+        '  edge [color="#666", arrowsize=0.8, fontname="Helvetica", fontsize=9];'
     ]
 
-    # Nodes for roles
     for r in roles:
-        if cap.get(r, 0) <= 0:
-            # Still show the node (dimmed) so users see it exists but has 0 staff
-            lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min", fillcolor="#EFEFEF"];')
-        else:
-            lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min"];')
+        lines.append(f'  "{r}" [label="{r}\\ncap={cap.get(r,0)}\\nsvc≈{svc.get(r,0):.1f} min"];')
 
-    # Nurse protocol note (as a small annotation node) if set
     if p_protocol is not None and svc_proto is not None and cap.get("Nurse", 0) > 0:
         proto_label = f'Nurse Protocol\\np={_fmt_pct(p_protocol)}\\nsvc≈{svc_proto:.1f} min'
         lines += [
-            '  "NurseProto" [shape=note, fillcolor="#FFFBE6", color="#B59F3B", label="%s"];' % proto_label,
+            f'  "NurseProto" [shape=note, fillcolor="#FFFBE6", color="#B59F3B", label="{proto_label}", fontsize=9];',
             '  "Nurse" -> "NurseProto" [style=dotted, label=" info "];'
         ]
 
-    # Done node
     lines.append('  "Done" [shape=doublecircle, fillcolor="#E8F5E9", color="#5E8D5B"];')
 
-    # Routing edges (solid)
     for src, row in route.items():
         for tgt, prob in row.items():
             try:
@@ -400,29 +390,26 @@ def build_process_graph(p: Dict) -> str:
                 prob_f = 0.0
             if prob_f <= 0:
                 continue
-            label = _fmt_pct(prob_f)
-            # If target role has 0 capacity, it should already be zeroed in config; still guard
-            lines.append(f'  "{src}" -> "{tgt}" [label="{label}"];')
+            lines.append(f'  "{src}" -> "{tgt}" [label="{_fmt_pct(prob_f)}"];')
 
-    # Loop edges (dashed self-loops)
     for r, (p_loop, max_loops) in loops.items():
         try:
             p_f = float(p_loop)
         except:
             p_f = 0.0
-        if p_f > 0 and cap.get(r, 0) >= 0:
+        if p_f > 0:
             lines.append(
-                f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop { _fmt_pct(p_f) } / max {max_loops}"];'
+                f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];'
             )
 
-    # Legend cluster
     lines += [
         '  subgraph cluster_legend {',
         '    label="Legend"; fontsize=11; color="#CCCCCC";',
-        '    l1 [shape=plaintext, label="Node: Role (capacity, mean service time)"];',
-        '    l2 [shape=plaintext, label="Solid arrow: routing probability"];',
-        '    l3 [shape=plaintext, label="Dashed self-arrow: loop prob / max loops"];',
-        '    l4 [shape=plaintext, label="Double circle: Done"];',
+        '    l1 [shape=plaintext, label="cap = capacity"];',
+        '    l2 [shape=plaintext, label="svc = mean service time"];',
+        '    l3 [shape=plaintext, label="Solid arrow = routing probability"];',
+        '    l4 [shape=plaintext, label="Dashed arrow = loop probability"];',
+        '    l5 [shape=plaintext, label="Double circle = Done"];',
         '  }'
     ]
 
