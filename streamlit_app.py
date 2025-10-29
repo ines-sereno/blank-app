@@ -744,62 +744,95 @@ elif st.session_state.wizard_step == 2:
             for r in active_roles
         ])
 
-        # D) Throughput
-        # Completed tasks per simulated day
+        # D) Throughput (one consolidated daily table)
         num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
-        comp_per_day = []
+        daily_rows = []
         for d in range(num_days):
             start_t = d * DAY_MIN
             end_t = (d + 1) * DAY_MIN
-            count_d = sum(1 for k, ct in comp_times.items() if start_t <= ct < end_t)
-            comp_per_day.append({"Day": d + 1, "Completed": count_d})
-        throughput_df = pd.DataFrame(comp_per_day)
 
-        # Tasks on hold for next day (carryover at each day boundary)
-        carry_rows = []
-        for d in range(1, num_days):  # boundaries at end of day 1..(num_days-1)
-            boundary = d * DAY_MIN
-            carry = 0
-            for k, at in arr_times.items():
-                ct = comp_times.get(k, None)
-                if at <= boundary and (ct is None or ct > boundary):
-                    carry += 1
-            carry_rows.append({"After Day": d, "Tasks on hold for next day": carry})
-        carryover_df = pd.DataFrame(carry_rows) if carry_rows else pd.DataFrame([{"After Day": 1, "Tasks on hold for next day": 0}])
+            # arrivals & completed during the day
+            arrivals_today = sum(1 for k, at in arr_times.items() if start_t <= at < end_t)
+            completed_today = sum(1 for k, ct in comp_times.items() if start_t <= ct < end_t)
 
-        # ---- Render tables ----
-        st.markdown("#### Utilization (%)")
-        st.dataframe(util_df, use_container_width=True)
+            # backlog at start: arrived before start and not yet completed by start
+            from_prev = sum(
+                1
+                for k, at in arr_times.items()
+                if at < start_t and (k not in comp_times or comp_times[k] >= start_t)
+            )
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### Queue metrics")
-            st.dataframe(queue_df, use_container_width=True)
-        with c2:
-            st.markdown("#### Rework overview")
-            st.dataframe(rework_overview_df, use_container_width=True)
-            st.markdown("#### Rework origin (by role)")
-            st.dataframe(loop_origin_df, use_container_width=True)
+            # backlog at end: arrived by end and not completed by end (i.e., carry forward)
+            for_next = sum(
+                1
+                for k, at in arr_times.items()
+                if at < end_t and (k not in comp_times or comp_times[k] >= end_t)
+            )
 
-        st.markdown("#### Flow time metrics")
+            daily_rows.append({
+                "Day": d + 1,
+                "Total tasks that day": arrivals_today,
+                "Completed tasks": completed_today,
+                "Tasks from previous day": from_prev,
+                "Tasks for next day": for_next
+            })
+
+        throughput_full_df = pd.DataFrame(daily_rows)
+
+        # ── RENDER (with tiny "?" help by each section) ────────────────────────
+        # 1) Flow time metrics
+        header_with_help(
+            "Flow time metrics",
+            "- **Turnaround time**: arrival → completion (mins, avg/median)\n"
+            "- **Same-day completion**: % completed within the same calendar day of arrival\n"
+            "- **Time at role**: average service minutes per completed task at each role"
+        )
         st.dataframe(flow_df, use_container_width=True)
         st.dataframe(time_at_role_df, use_container_width=True)
 
-        c3, c4 = st.columns(2)
-        with c3:
-            st.markdown("#### Throughput (completed per day)")
-            st.dataframe(throughput_df, use_container_width=True)
-        with c4:
-            st.markdown("#### Tasks on hold for next day")
-            st.dataframe(carryover_df, use_container_width=True)
+        # 2) Queue metrics
+        header_with_help(
+            "Queue metrics",
+            "- **Avg queue length**: average number of tasks waiting (sampled every simulated minute)\n"
+            "- **Max queue length**: peak queue size observed during the run"
+        )
+        st.dataframe(queue_df, use_container_width=True)
 
-        # Persist minimal results
+        # 3) Rework metrics
+        header_with_help(
+            "Rework metrics",
+            "- **Any rework**: % of completed tasks that triggered at least one rework/insufficient-info cycle\n"
+            "- **Where loops originate**: distribution of loop counts by role"
+        )
+        st.dataframe(rework_overview_df, use_container_width=True)
+        st.dataframe(loop_origin_df, use_container_width=True)
+
+        # 4) Throughput
+        header_with_help(
+            "Throughput (daily)",
+            "- **Total tasks that day**: number of arrivals during that day\n"
+            "- **Completed tasks**: number finished during that day\n"
+            "- **Tasks from previous day**: backlog at day start\n"
+            "- **Tasks for next day**: backlog carried to the next day"
+        )
+        st.dataframe(throughput_full_df, use_container_width=True)
+
+        # Utilization at the end (unchanged content, but shown after KPIs if you prefer)
+        header_with_help(
+            "Utilization (%)",
+            "Share of available open time spent in service (per role and overall)."
+        )
+        st.dataframe(util_df, use_container_width=True)
+        # ───────────────────────────────────────────────────────────────────────
+
+        # Persist results (update keys as needed)
         st.session_state["results"] = dict(
             util_df=util_df,
-            loop_df=loop_df,
             queue_df=queue_df,
             flow_df=flow_df,
             time_at_role_df=time_at_role_df,
-            throughput_df=throughput_df,
-            carryover_df=carryover_df
+            rework_overview_df=rework_overview_df,
+            loop_origin_df=loop_origin_df,
+            throughput_full_df=throughput_full_df,
         )
+
