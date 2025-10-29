@@ -402,14 +402,9 @@ def build_process_graph(p: Dict) -> str:
                 f'  "{r}" -> "{r}" [style=dashed, color="#999", label="loop {_fmt_pct(p_f)} / max {max_loops}"];'
             )
 
-    lines += [
-        '  subgraph cluster_legend {',
-        '    label="Legend"; fontsize=14; color="#DDDDDD"; fontname="Helvetica";',
-        '    l1 [shape=plaintext, fontsize=12, label="cap = capacity"];',
-        '    l2 [shape=plaintext, fontsize=12, label="svc = mean svc time"];',
-        '    l3 [shape=plaintext, fontsize=12, label="→ routing prob"];',
-        '    l4 [shape=plaintext, fontsize=12, label="↺ loop prob / max"];',
-        '  }'
+     lines += [
+        '  legend [shape=box, style="rounded,filled", fillcolor="#FAFAFA", color="#CCCCCC", fontsize=8, ',
+        '          label="cap = capacity\\nsvc = mean svc time\\n→ routing prob\\n↺ loop prob / max"];'
     ]
 
     lines.append('}')
