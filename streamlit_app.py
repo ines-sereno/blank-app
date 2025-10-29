@@ -957,42 +957,6 @@ elif st.session_state.wizard_step == 2:
         }
         summary_df = pd.DataFrame([summary_row])
 
-        # ---- Name/save & downloads UI ----
-        st.markdown("### Save / download")
-        default_name = f"Intervention {len(st.session_state.saved_runs)+1}"
-        scenario_name = st.text_input("Intervention name", value=default_name, help="Give this run a name to compare later.")
-        run_package = {
-            "name": (scenario_name.strip() or default_name),
-            "design": p,
-            "flow_df": flow_df,
-            "time_at_role_df": time_at_role_df,
-            "queue_df": queue_df,
-            "rework_overview_df": rework_overview_df,
-            "loop_origin_df": loop_origin_df,
-            "throughput_full_df": throughput_full_df,
-            "util_df": util_df,
-            "summary_df": summary_df.assign(Name=(scenario_name.strip() or default_name)),
-            "events": metrics.events,
-        }
-
-        cols_save = st.columns([1,1])
-        with cols_save[0]:
-            save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
-        with cols_save[1]:
-            engine = _excel_engine()
-            single_pkg = _workbook_from_run(run_package, engine=engine)
-            st.download_button(
-                "Download current run",
-                data=single_pkg["bytes"],
-                file_name=f"{run_package['name']}.{single_pkg['ext']}",
-                mime=single_pkg["mime"],
-                use_container_width=True
-            )
-
-        if save_btn:
-            st.session_state.saved_runs.append(run_package)
-            st.success(f"Saved intervention: **{run_package['name']}**")
-
         # ── RENDER ────────────────────────────────────────────────────────────
         st.markdown("#### Flow time metrics")
         st.dataframe(flow_df, use_container_width=True)
@@ -1043,3 +1007,39 @@ elif st.session_state.wizard_step == 2:
             loop_origin_df=loop_origin_df,
             throughput_full_df=throughput_full_df,
         )
+
+        # ---- Name/save & downloads UI ----
+        st.markdown("### Save / download")
+        default_name = f"Intervention {len(st.session_state.saved_runs)+1}"
+        scenario_name = st.text_input("Intervention name", value=default_name, help="Give this run a name to compare later.")
+        run_package = {
+            "name": (scenario_name.strip() or default_name),
+            "design": p,
+            "flow_df": flow_df,
+            "time_at_role_df": time_at_role_df,
+            "queue_df": queue_df,
+            "rework_overview_df": rework_overview_df,
+            "loop_origin_df": loop_origin_df,
+            "throughput_full_df": throughput_full_df,
+            "util_df": util_df,
+            "summary_df": summary_df.assign(Name=(scenario_name.strip() or default_name)),
+            "events": metrics.events,
+        }
+
+        cols_save = st.columns([1,1])
+        with cols_save[0]:
+            save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
+        with cols_save[1]:
+            engine = _excel_engine()
+            single_pkg = _workbook_from_run(run_package, engine=engine)
+            st.download_button(
+                "Download current run",
+                data=single_pkg["bytes"],
+                file_name=f"{run_package['name']}.{single_pkg['ext']}",
+                mime=single_pkg["mime"],
+                use_container_width=True
+            )
+
+        if save_btn:
+            st.session_state.saved_runs.append(run_package)
+            st.success(f"Saved intervention: **{run_package['name']}**")
