@@ -631,10 +631,10 @@ if st.session_state.wizard_step == 1:
                     row[tgt] = val
                 return row
 
-            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.6, DONE: 0.4}, disabled_source=fd_off)
-            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.5, DONE: 0.5}, disabled_source=nu_off)
-            route["Provider"]    = route_row_ui("Provider",    {"Back Office": 0.2, DONE: 0.8}, disabled_source=pr_off)
-            route["Back Office"] = route_row_ui("Back Office", {DONE: 1.0},                      disabled_source=bo_off)
+            route["Front Desk"]  = route_row_ui("Front Desk",  {"Nurse": 0.50, "Provider": 0.10, "Back Office": 0.10, DONE: 0.30}, disabled_source=fd_off)
+            route["Nurse"]       = route_row_ui("Nurse",       {"Provider": 0.40, "Back Office": 0.20, DONE: 0.40}, disabled_source=nu_off)
+            route["Provider"]    = route_row_ui("Provider",    {"Nurse": 0.50, "Back Office": 0.10, DONE: 0.40}, disabled_source=pr_off)
+            route["Back Office"] = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, disabled_source=bo_off)
 
         saved = st.form_submit_button("Save", use_container_width=True)
 
