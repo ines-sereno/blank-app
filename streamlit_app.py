@@ -870,7 +870,6 @@ elif st.session_state.wizard_step == 2:
 
         flow_df = pd.DataFrame([
             {"Metric": "Average turnaround time (minutes)", "Value": f"{flow_avg:.1f}"},
-            {"Metric": "Turnaround time (median, min)", "Value": f"{flow_med:.1f}"},
             {"Metric": "Same-day completion", "Value": pct(same_day_prop)}
         ])
         time_at_role_df = pd.DataFrame(
