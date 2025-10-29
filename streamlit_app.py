@@ -5,6 +5,7 @@ import random
 import numpy as np
 import math
 import pandas as pd
+from io import BytesIO  # for downloads
 
 # =============================
 # Utilities
@@ -427,6 +428,9 @@ if "design_saved" not in st.session_state:
 # NEW: track if user has run the simulation (to toggle process preview dropdown)
 if "ran" not in st.session_state:
     st.session_state.ran = False
+# NEW: store saved interventions/runs
+if "saved_runs" not in st.session_state:
+    st.session_state.saved_runs = []  # list of dicts
 
 def go_next():
     st.session_state.wizard_step = min(2, st.session_state.wizard_step + 1)
@@ -449,6 +453,36 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     val = max(0.0, min(1.0, val))
     st.caption(f"{val:.2f}")
     return val
+
+# ---- Download helpers ----
+def _workbook_from_run(run: dict) -> bytes:
+    """Create an Excel file (bytes) for a single intervention/run."""
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
+        run["flow_df"].to_excel(xw, index=False, sheet_name="Flow")
+        run["time_at_role_df"].to_excel(xw, index=False, sheet_name="TimeAtRole")
+        run["queue_df"].to_excel(xw, index=False, sheet_name="Queue")
+        run["rework_overview_df"].to_excel(xw, index=False, sheet_name="Rework")
+        run["loop_origin_df"].to_excel(xw, index=False, sheet_name="ReworkByRole")
+        run["throughput_full_df"].to_excel(xw, index=False, sheet_name="ThroughputDaily")
+        run["util_df"].to_excel(xw, index=False, sheet_name="Utilization")
+        run["summary_df"].to_excel(xw, index=False, sheet_name="Summary")
+    return bio.getvalue()
+
+def _all_runs_workbook(runs: list) -> bytes:
+    """Create a single Excel with one Summary sheet (all runs) + per-run sheets."""
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
+        if runs:
+            comp = pd.concat([r["summary_df"] for r in runs], ignore_index=True)
+            comp.to_excel(xw, index=False, sheet_name="SummaryAll")
+        for r in runs:
+            name = r["name"][:28]  # Excel sheet name limit
+            r["summary_df"].to_excel(xw, index=False, sheet_name=f"{name}_Summary")
+            r["flow_df"].to_excel(xw, index=False, sheet_name=f"{name}_Flow")
+            r["queue_df"].to_excel(xw, index=False, sheet_name=f"{name}_Queue")
+            r["util_df"].to_excel(xw, index=False, sheet_name=f"{name}_Util")
+    return bio.getvalue()
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
@@ -739,14 +773,6 @@ elif st.session_state.wizard_step == 2:
         util_rows.append({"Role": "Overall", "Utilization": pct(min(1.0, util_overall))})
         util_df = pd.DataFrame(util_rows)
 
-        loop_counts = {
-            "Front Desk":  metrics.loop_fd_insufficient,
-            "Nurse":       metrics.loop_nurse_insufficient,
-            "Provider":    metrics.loop_provider_insufficient,
-            "Back Office": metrics.loop_backoffice_insufficient,
-        }
-        loop_df = pd.DataFrame([{"Role": r, "Loop Count": loop_counts[r]} for r in active_roles if r in loop_counts])
-
         # =========================
         # KPI computations
         # =========================
@@ -774,9 +800,9 @@ elif st.session_state.wizard_step == 2:
 
         flow_df = pd.DataFrame([
             {"Metric": "Average turnaround time (minutes)", "Value": f"{flow_avg:.1f}"},
+            {"Metric": "Turnaround time (median, min)", "Value": f"{flow_med:.1f}"},
             {"Metric": "Same-day completion", "Value": pct(same_day_prop)}
         ])
-
         time_at_role_df = pd.DataFrame(
             [{"Role": r, "Avg time at role (min) per completed task": f"{time_at_role_avg[r]:.1f}"} for r in active_roles]
         )
@@ -841,7 +867,64 @@ elif st.session_state.wizard_step == 2:
 
         throughput_full_df = pd.DataFrame(daily_rows)
 
-        # ── RENDER (simple headers, no hover helpers) ──────────────────────────
+        # --- Build a one-row summary for comparisons ---
+        # Parse numbers from the dfs (strip %)
+        def _to_float(s):
+            if isinstance(s, (int, float, np.floating)):
+                return float(s)
+            s = str(s).replace("%", "").strip()
+            try:
+                return float(s)
+            except:
+                return 0.0
+
+        summary_row = {
+            "Name": "",  # fill after user names the run
+            "Avg turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Average turnaround time (minutes)","Value"].iloc[0]),
+            "Median turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Turnaround time (median, min)","Value"].iloc[0]),
+            "Same-day completion (%)": _to_float(flow_df.loc[flow_df["Metric"]=="Same-day completion","Value"].iloc[0]),
+            "Rework (% of completed)": _to_float(rework_overview_df["Value"].iloc[0]),
+            "Utilization overall (%)": _to_float(util_df.loc[util_df["Role"]=="Overall","Utilization"].iloc[0]),
+        }
+        summary_df = pd.DataFrame([summary_row])
+
+        # ---- Name/save & downloads UI (before render, so name is above tables) ----
+        st.markdown("### Save / download")
+        default_name = f"Intervention {len(st.session_state.saved_runs)+1}"
+        scenario_name = st.text_input("Intervention name", value=default_name, help="Give this run a name to compare later.")
+        # Build the run package for download (and potential save)
+        run_package = {
+            "name": (scenario_name.strip() or default_name),
+            "design": p,
+            "flow_df": flow_df,
+            "time_at_role_df": time_at_role_df,
+            "queue_df": queue_df,
+            "rework_overview_df": rework_overview_df,
+            "loop_origin_df": loop_origin_df,
+            "throughput_full_df": throughput_full_df,
+            "util_df": util_df,
+            "summary_df": summary_df.assign(Name=(scenario_name.strip() or default_name)),
+            "events": metrics.events,
+        }
+
+        cols_save = st.columns([1,1])
+        with cols_save[0]:
+            save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
+        with cols_save[1]:
+            single_bytes = _workbook_from_run(run_package)
+            st.download_button(
+                "Download current run (.xlsx)",
+                data=single_bytes,
+                file_name=f"{run_package['name']}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        if save_btn:
+            st.session_state.saved_runs.append(run_package)
+            st.success(f"Saved intervention: **{run_package['name']}**")
+
+        # ── RENDER (simple headers) ────────────────────────────────────────────
         st.markdown("#### Flow time metrics")
         st.dataframe(flow_df, use_container_width=True)
         st.dataframe(time_at_role_df, use_container_width=True)
@@ -860,7 +943,30 @@ elif st.session_state.wizard_step == 2:
         st.dataframe(util_df, use_container_width=True)
         # ───────────────────────────────────────────────────────────────────────
 
-        # Persist results
+        # ---- Compare saved interventions ----
+        if len(st.session_state.saved_runs) >= 1:
+            st.markdown("### Saved interventions")
+            names = [r["name"] for r in st.session_state.saved_runs]
+            st.write(", ".join(f"**{n}**" for n in names))
+
+        if len(st.session_state.saved_runs) >= 2:
+            st.markdown("### Compare interventions (summary)")
+            comp_df = pd.concat([r["summary_df"] for r in st.session_state.saved_runs], ignore_index=True)
+            cols = ["Name","Avg turnaround (min)","Median turnaround (min)","Same-day completion (%)","Rework (% of completed)","Utilization overall (%)"]
+            comp_df = comp_df[cols]
+            st.dataframe(comp_df, use_container_width=True)
+
+            # Download all
+            all_bytes = _all_runs_workbook(st.session_state.saved_runs)
+            st.download_button(
+                "Download all saved interventions (.xlsx)",
+                data=all_bytes,
+                file_name="interventions_all.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        # Persist results (optional; unchanged)
         st.session_state["results"] = dict(
             util_df=util_df,
             queue_df=queue_df,
