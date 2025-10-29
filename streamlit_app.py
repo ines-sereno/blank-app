@@ -447,6 +447,14 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     st.caption(f"{val:.2f}")
     return val
 
+def header_with_help(title: str, help_text: str):
+    c1, c2 = st.columns([1, 0.08])
+    with c1:
+        st.markdown(f"#### {title}")
+    with c2:
+        with st.expander("❓", expanded=False):
+            st.write(help_text)
+
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
 
