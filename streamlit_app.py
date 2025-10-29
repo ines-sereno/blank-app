@@ -949,7 +949,6 @@ elif st.session_state.wizard_step == 2:
         summary_row = {
             "Name": "",
             "Avg turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Average turnaround time (minutes)","Value"].iloc[0]),
-            "Median turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Turnaround time (median, min)","Value"].iloc[0]),
             "Same-day completion (%)": _to_float(flow_df.loc[flow_df["Metric"]=="Same-day completion","Value"].iloc[0]),
             "Rework (% of completed)": _to_float(rework_overview_df["Value"].iloc[0]),
             "Utilization overall (%)": _to_float(util_df.loc[util_df["Role"]=="Overall","Utilization"].iloc[0]),
