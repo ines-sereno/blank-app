@@ -949,8 +949,9 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
 # =============================
 # Streamlit UI
 # =============================
-st.set_page_config(page_title="CHC Workflow Simulator", layout="wide")
-st.title("CHC Workflow Simulator")
+st.set_page_config(page_title="HSyE Burnout Grant - DES Model for Community Health Centers", layout="wide")
+st.title("HSyE Burnout Grant - DES Model for Community Health Centers")
+st.subtitle("By Ines Sereno")
 
 if "wizard_step" not in st.session_state:
     st.session_state.wizard_step = 1
