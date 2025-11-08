@@ -6,6 +6,7 @@ import numpy as np
 import math
 import pandas as pd
 from io import BytesIO  # for downloads
+from scipy import stats
 
 # =============================
 # Utilities
@@ -413,6 +414,225 @@ def build_process_graph(p: Dict) -> str:
     return "\n".join(lines)
 
 # =============================
+# NEW: Run single replication
+# =============================
+def run_single_replication(p: Dict, seed: int) -> Metrics:
+    """Run one replication and return the metrics object."""
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    metrics = Metrics()
+    env = simpy.Environment()
+    system = CHCSystem(env, p, metrics)
+
+    for role in ROLES:
+        rate = int(p["arrivals_per_hour_by_role"].get(role, 0))
+        env.process(arrival_process_for_role(env, system, role, rate))
+
+    env.process(monitor(env, system))
+    env.run(until=p["sim_minutes"])
+    
+    return metrics
+
+# =============================
+# NEW: Aggregate metrics across replications
+# =============================
+def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: List[str]):
+    """
+    Aggregate metrics from multiple replications and return summary DataFrames with mean ± std.
+    """
+    num_reps = len(all_metrics)
+    
+    # Helper to format mean ± std
+    def fmt_mean_std(values):
+        m = np.mean(values)
+        s = np.std(values, ddof=1) if len(values) > 1 else 0.0
+        return f"{m:.1f} ± {s:.1f}"
+    
+    def fmt_mean_std_pct(values):
+        m = np.mean(values)
+        s = np.std(values, ddof=1) if len(values) > 1 else 0.0
+        return f"{m:.1f}% ± {s:.1f}%"
+    
+    # ========== A) Flow time metrics ==========
+    flow_avg_list = []
+    flow_med_list = []
+    same_day_list = []
+    time_at_role_lists = {r: [] for r in ROLES}
+    
+    for metrics in all_metrics:
+        comp_times = metrics.task_completion_time
+        arr_times = metrics.task_arrival_time
+        done_ids = set(comp_times.keys())
+        
+        if len(done_ids) > 0:
+            tt = np.array([comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids])
+            flow_avg_list.append(float(np.mean(tt)))
+            flow_med_list.append(float(np.median(tt)))
+            
+            for r in ROLES:
+                time_at_role_lists[r].append(metrics.service_time_sum[r] / len(done_ids))
+            
+            same_day = sum(1 for k in done_ids 
+                          if int(arr_times.get(k, 0) // DAY_MIN) == int(comp_times[k] // DAY_MIN))
+            same_day_list.append(100.0 * same_day / len(done_ids))
+        else:
+            flow_avg_list.append(0.0)
+            flow_med_list.append(0.0)
+            same_day_list.append(0.0)
+            for r in ROLES:
+                time_at_role_lists[r].append(0.0)
+    
+    flow_df = pd.DataFrame([
+        {"Metric": "Average turnaround time (minutes)", "Value": fmt_mean_std(flow_avg_list)},
+        {"Metric": "Median turnaround time (minutes)", "Value": fmt_mean_std(flow_med_list)},
+        {"Metric": "Same-day completion", "Value": fmt_mean_std_pct(same_day_list)}
+    ])
+    
+    time_at_role_df = pd.DataFrame([
+        {"Role": r, "Avg time at role (min) per completed task": fmt_mean_std(time_at_role_lists[r])}
+        for r in active_roles
+    ])
+    
+    # ========== B) Queue metrics ==========
+    q_avg_lists = {r: [] for r in ROLES}
+    q_max_lists = {r: [] for r in ROLES}
+    
+    for metrics in all_metrics:
+        for r in ROLES:
+            q_avg_lists[r].append(np.mean(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0.0)
+            q_max_lists[r].append(np.max(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0)
+    
+    queue_df = pd.DataFrame([
+        {
+            "Role": r,
+            "Avg queue length": fmt_mean_std(q_avg_lists[r]),
+            "Max queue length": fmt_mean_std(q_max_lists[r])
+        }
+        for r in active_roles
+    ])
+    
+    # ========== C) Rework metrics ==========
+    rework_pct_list = []
+    loop_counts_lists = {
+        "Front Desk": [],
+        "Nurse": [],
+        "Provider": [],
+        "Back Office": []
+    }
+    
+    for metrics in all_metrics:
+        rework_tasks = set()
+        for t, name, step, note, _arr in metrics.events:
+            if step.endswith("INSUFF") or "RECHECK" in step:
+                rework_tasks.add(name)
+        
+        done_ids = set(metrics.task_completion_time.keys())
+        rework_pct_list.append(100.0 * len(rework_tasks & done_ids) / max(1, len(done_ids)))
+        
+        loop_counts_lists["Front Desk"].append(metrics.loop_fd_insufficient)
+        loop_counts_lists["Nurse"].append(metrics.loop_nurse_insufficient)
+        loop_counts_lists["Provider"].append(metrics.loop_provider_insufficient)
+        loop_counts_lists["Back Office"].append(metrics.loop_backoffice_insufficient)
+    
+    rework_overview_df = pd.DataFrame([
+        {"Metric": "% tasks with any rework", "Value": fmt_mean_std_pct(rework_pct_list)}
+    ])
+    
+    total_loops_list = [sum(loop_counts_lists[r][i] for r in ROLES) for i in range(num_reps)]
+    loop_origin_df = pd.DataFrame([
+        {
+            "Role": r,
+            "Loop Count": fmt_mean_std(loop_counts_lists[r]),
+            "Share": fmt_mean_std_pct([
+                100.0 * loop_counts_lists[r][i] / total_loops_list[i] if total_loops_list[i] > 0 else 0.0
+                for i in range(num_reps)
+            ])
+        }
+        for r in active_roles
+    ])
+    
+    # ========== D) Throughput (daily averages) ==========
+    num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    daily_arrivals_lists = [[] for _ in range(num_days)]
+    daily_completed_lists = [[] for _ in range(num_days)]
+    daily_from_prev_lists = [[] for _ in range(num_days)]
+    daily_for_next_lists = [[] for _ in range(num_days)]
+    
+    for metrics in all_metrics:
+        arr_times = metrics.task_arrival_time
+        comp_times = metrics.task_completion_time
+        
+        for d in range(num_days):
+            start_t = d * DAY_MIN
+            end_t = (d + 1) * DAY_MIN
+            
+            arrivals_today = sum(1 for k, at in arr_times.items() if start_t <= at < end_t)
+            completed_today = sum(1 for k, ct in comp_times.items() if start_t <= ct < end_t)
+            from_prev = sum(1 for k, at in arr_times.items() 
+                          if at < start_t and (k not in comp_times or comp_times[k] >= start_t))
+            for_next = sum(1 for k, at in arr_times.items() 
+                         if at < end_t and (k not in comp_times or comp_times[k] >= end_t))
+            
+            daily_arrivals_lists[d].append(arrivals_today)
+            daily_completed_lists[d].append(completed_today)
+            daily_from_prev_lists[d].append(from_prev)
+            daily_for_next_lists[d].append(for_next)
+    
+    throughput_rows = []
+    for d in range(num_days):
+        throughput_rows.append({
+            "Day": d + 1,
+            "Total tasks that day": fmt_mean_std(daily_arrivals_lists[d]),
+            "Completed tasks": fmt_mean_std(daily_completed_lists[d]),
+            "Tasks from previous day": fmt_mean_std(daily_from_prev_lists[d]),
+            "Tasks for next day": fmt_mean_std(daily_for_next_lists[d])
+        })
+    throughput_full_df = pd.DataFrame(throughput_rows)
+    
+    # ========== E) Utilization ==========
+    open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
+    denom = {
+        "Front Desk": max(1, p["frontdesk_cap"]) * open_time_available,
+        "Nurse": max(1, p["nurse_cap"]) * open_time_available,
+        "Provider": max(1, p["provider_cap"]) * open_time_available,
+        "Back Office": max(1, p["backoffice_cap"]) * open_time_available,
+    }
+    
+    util_lists = {r: [] for r in ROLES}
+    for metrics in all_metrics:
+        for r in ROLES:
+            util_lists[r].append(100.0 * metrics.service_time_sum[r] / max(1, denom[r]))
+    
+    util_overall_list = [np.mean([util_lists[r][i] for r in ROLES]) for i in range(num_reps)]
+    
+    util_rows = [{"Role": r, "Utilization": fmt_mean_std_pct(util_lists[r])} for r in active_roles]
+    util_rows.append({"Role": "Overall", "Utilization": fmt_mean_std_pct(util_overall_list)})
+    util_df = pd.DataFrame(util_rows)
+    
+    # ========== Summary row for comparison ==========
+    summary_row = {
+        "Name": "",
+        "Avg turnaround (min)": np.mean(flow_avg_list),
+        "Median turnaround (min)": np.mean(flow_med_list),
+        "Same-day completion (%)": np.mean(same_day_list),
+        "Rework (% of completed)": np.mean(rework_pct_list),
+        "Utilization overall (%)": np.mean(util_overall_list),
+    }
+    summary_df = pd.DataFrame([summary_row])
+    
+    return {
+        "flow_df": flow_df,
+        "time_at_role_df": time_at_role_df,
+        "queue_df": queue_df,
+        "rework_overview_df": rework_overview_df,
+        "loop_origin_df": loop_origin_df,
+        "throughput_full_df": throughput_full_df,
+        "util_df": util_df,
+        "summary_df": summary_df
+    }
+
+# =============================
 # Streamlit UI (2-step wizard)
 # =============================
 st.set_page_config(page_title="CHC Workflow Simulator", layout="wide")
@@ -489,6 +709,9 @@ def _workbook_from_run(run: dict, engine: str | None = None) -> dict:
             run["throughput_full_df"].to_excel(xw, index=False, sheet_name="ThroughputDaily")
             run["util_df"].to_excel(xw, index=False, sheet_name="Utilization")
             run["summary_df"].to_excel(xw, index=False, sheet_name="Summary")
+            # NEW: Add events dataframe if present
+            if "events_df" in run:
+                run["events_df"].to_excel(xw, index=False, sheet_name="RunLog")
         return {
             "bytes": bio.getvalue(),
             "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -509,6 +732,8 @@ def _workbook_from_run(run: dict, engine: str | None = None) -> dict:
             _w("ThroughputDaily", run["throughput_full_df"])
             _w("Utilization", run["util_df"])
             _w("Summary", run["summary_df"])
+            if "events_df" in run:
+                _w("RunLog", run["events_df"])
         return {"bytes": bio.getvalue(), "mime": "application/zip", "ext": "zip"}
 
 def _all_runs_workbook(runs: list, engine: str | None = None) -> dict:
@@ -554,36 +779,19 @@ def _all_runs_workbook(runs: list, engine: str | None = None) -> dict:
                 _w("Utilization", r["util_df"])
         return {"bytes": bio.getvalue(), "mime": "application/zip", "ext": "zip"}
 
-def _runlog_workbook(events: list, engine: str | None = None) -> dict:
+def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict:
     """
     Build a single-sheet Excel file with the DES run log.
-    events: list of tuples (time_min, task_id, step_code, note, arrival_time_min)
     Returns dict: {"bytes": ..., "mime": ..., "ext": "..."}
     """
     if engine is None:
         engine = _excel_engine()
 
-    # Build a DataFrame with helpful columns
-    cols = ["Time (min)", "Task", "Step", "Step label", "Note", "Arrival time (min)", "Day"]
-    rows = []
-    for t, name, step, note, arr in events:
-        rows.append([
-            float(t),
-            name,
-            step,
-            pretty_step(step),
-            note,
-            (float(arr) if arr is not None else None),
-            int(t // DAY_MIN)
-        ])
-    import pandas as pd
-    df = pd.DataFrame(rows, columns=cols)
-
     from io import BytesIO
     if engine:
         bio = BytesIO()
         with pd.ExcelWriter(bio, engine=engine) as xw:
-            df.to_excel(xw, index=False, sheet_name="RunLog")
+            events_df.to_excel(xw, index=False, sheet_name="RunLog")
         return {
             "bytes": bio.getvalue(),
             "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -842,39 +1050,17 @@ elif st.session_state.wizard_step == 2:
             st.graphviz_chart(dot, use_container_width=False)
 
     seed = st.number_input("Random seed", 0, 999999, 42, 1, "%d", help="Seed for reproducibility.")
+    num_replications = st.number_input("Number of replications", 1, 1000, 30, 1, "%d", 
+                                       help="Number of independent simulation runs to average over.")
     run = st.button("Run Simulation", type="primary", use_container_width=True)
 
     if run:
         # mark as ran → collapse diagram on re-render
         st.session_state.ran = True
 
-        random.seed(seed)
-        np.random.seed(seed)
-
         p = st.session_state["design"]
-        metrics = Metrics()
-        env = simpy.Environment()
-        system = CHCSystem(env, p, metrics)
-
-        for role in ROLES:
-            rate = int(p["arrivals_per_hour_by_role"].get(role, 0))
-            env.process(arrival_process_for_role(env, system, role, rate))
-
-        env.process(monitor(env, system))
-        env.run(until=p["sim_minutes"])
-
-        # ---- Utilizations (open-time adjusted) ----
-        open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
-        denom = {
-            "Front Desk": max(1, p["frontdesk_cap"]) * open_time_available,
-            "Nurse":      max(1, p["nurse_cap"])      * open_time_available,
-            "Provider":   max(1, p["provider_cap"])   * open_time_available,
-            "Back Office":max(1, p["backoffice_cap"]) * open_time_available,
-        }
-        util = {r: metrics.service_time_sum[r] / max(1, denom[r]) for r in ["Front Desk","Nurse","Provider","Back Office"]}
-        util_overall = np.mean(list(util.values()))
-
-        # Only show active roles
+        
+        # Determine active roles
         active_roles_caps = [
             ("Provider",    p["provider_cap"]),
             ("Front Desk",  p["frontdesk_cap"]),
@@ -882,124 +1068,52 @@ elif st.session_state.wizard_step == 2:
             ("Back Office", p["backoffice_cap"]),
         ]
         active_roles = [r for r, cap in active_roles_caps if cap > 0]
-
-        util_rows = [{"Role": r, "Utilization": pct(min(1.0, util[r]))} for r in active_roles]
-        util_rows.append({"Role": "Overall", "Utilization": pct(min(1.0, util_overall))})
-        util_df = pd.DataFrame(util_rows)
-
-        # =========================
-        # KPI computations
-        # =========================
-
-        # A) Flow time metrics
-        comp_times = metrics.task_completion_time
-        arr_times = metrics.task_arrival_time
-        done_ids = set(comp_times.keys())
-        if len(done_ids) > 0:
-            tt = np.array([comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids])
-            flow_avg = float(np.mean(tt))
-            flow_med = float(np.median(tt))
-            time_at_role_avg = {r: (metrics.service_time_sum[r] / len(done_ids)) for r in ROLES}
-            same_day = 0
-            for k in done_ids:
-                a = arr_times.get(k, 0)
-                c = comp_times[k]
-                if int(a // DAY_MIN) == int(c // DAY_MIN):
-                    same_day += 1
-            same_day_prop = same_day / len(done_ids)
-        else:
-            flow_avg = flow_med = 0.0
-            time_at_role_avg = {r: 0.0 for r in ROLES}
-            same_day_prop = 0.0
-
-        flow_df = pd.DataFrame([
-            {"Metric": "Average turnaround time (minutes)", "Value": f"{flow_avg:.1f}"},
-            {"Metric": "Same-day completion", "Value": pct(same_day_prop)}
-        ])
-        time_at_role_df = pd.DataFrame(
-            [{"Role": r, "Avg time at role (min) per completed task": f"{time_at_role_avg[r]:.1f}"} for r in active_roles]
-        )
-
-        # B) Queue metrics
-        q_avg = {r: (np.mean(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0.0) for r in ROLES}
-        q_max = {r: (np.max(metrics.queues[r]) if len(metrics.queues[r]) > 0 else 0) for r in ROLES}
-        queue_df = pd.DataFrame(
-            [{"Role": r, "Avg queue length": f"{q_avg[r]:.2f}", "Max queue length": int(q_max[r])} for r in active_roles]
-        )
-
-        # C) Rework metrics
-        rework_tasks = set()
-        for t, name, step, note, _arr in metrics.events:
-            if step.endswith("INSUFF") or "RECHECK" in step:
-                rework_tasks.add(name)
-        rework_pct = (len(rework_tasks & done_ids) / max(1, len(done_ids)))
-        rework_overview_df = pd.DataFrame([
-            {"Metric": "% tasks with any rework", "Value": pct(rework_pct)}
-        ])
-        loop_by_role_counts = {
-            "Front Desk": metrics.loop_fd_insufficient,
-            "Nurse": metrics.loop_nurse_insufficient,
-            "Provider": metrics.loop_provider_insufficient,
-            "Back Office": metrics.loop_backoffice_insufficient
-        }
-        total_loops = sum(loop_by_role_counts.values())
-        loop_origin_df = pd.DataFrame([
-            {"Role": r, "Loop Count": loop_by_role_counts[r], "Share": pct(loop_by_role_counts[r] / total_loops if total_loops > 0 else 0.0)}
-            for r in active_roles
-        ])
-
-        # D) Throughput (one consolidated daily table)
-        num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
-        daily_rows = []
-        for d in range(num_days):
-            start_t = d * DAY_MIN
-            end_t = (d + 1) * DAY_MIN
-
-            arrivals_today = sum(1 for k, at in arr_times.items() if start_t <= at < end_t)
-            completed_today = sum(1 for k, ct in comp_times.items() if start_t <= ct < end_t)
-
-            from_prev = sum(
-                1
-                for k, at in arr_times.items()
-                if at < start_t and (k not in comp_times or comp_times[k] >= start_t)
-            )
-
-            for_next = sum(
-                1
-                for k, at in arr_times.items()
-                if at < end_t and (k not in comp_times or comp_times[k] >= end_t)
-            )
-
-            daily_rows.append({
-                "Day": d + 1,
-                "Total tasks that day": arrivals_today,
-                "Completed tasks": completed_today,
-                "Tasks from previous day": from_prev,
-                "Tasks for next day": for_next
-            })
-
-        throughput_full_df = pd.DataFrame(daily_rows)
-
-        # --- Build a one-row summary for comparisons ---
-        def _to_float(s):
-            if isinstance(s, (int, float, np.floating)):
-                return float(s)
-            s = str(s).replace("%", "").strip()
-            try:
-                return float(s)
-            except:
-                return 0.0
-
-        summary_row = {
-            "Name": "",
-            "Avg turnaround (min)": _to_float(flow_df.loc[flow_df["Metric"]=="Average turnaround time (minutes)","Value"].iloc[0]),
-            "Same-day completion (%)": _to_float(flow_df.loc[flow_df["Metric"]=="Same-day completion","Value"].iloc[0]),
-            "Rework (% of completed)": _to_float(rework_overview_df["Value"].iloc[0]),
-            "Utilization overall (%)": _to_float(util_df.loc[util_df["Role"]=="Overall","Utilization"].iloc[0]),
-        }
-        summary_df = pd.DataFrame([summary_row])
-
+        
+        # Run replications with progress bar
+        all_metrics = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for rep in range(num_replications):
+            status_text.text(f"Running replication {rep + 1} of {num_replications}...")
+            metrics = run_single_replication(p, seed + rep)
+            all_metrics.append(metrics)
+            progress_bar.progress((rep + 1) / num_replications)
+        
+        status_text.text(f"Completed {num_replications} replications!")
+        
+        # Aggregate results
+        agg_results = aggregate_replications(p, all_metrics, active_roles)
+        
+        flow_df = agg_results["flow_df"]
+        time_at_role_df = agg_results["time_at_role_df"]
+        queue_df = agg_results["queue_df"]
+        rework_overview_df = agg_results["rework_overview_df"]
+        loop_origin_df = agg_results["loop_origin_df"]
+        throughput_full_df = agg_results["throughput_full_df"]
+        util_df = agg_results["util_df"]
+        summary_df = agg_results["summary_df"]
+        
+        # Build events dataframe with columns for each replication
+        # Create a combined dataframe where each replication is a separate column set
+        all_events_data = []
+        for rep_idx, metrics in enumerate(all_metrics):
+            for t, name, step, note, arr in metrics.events:
+                all_events_data.append({
+                    "Replication": rep_idx + 1,
+                    "Time (min)": float(t),
+                    "Task": name,
+                    "Step": step,
+                    "Step label": pretty_step(step),
+                    "Note": note,
+                    "Arrival time (min)": (float(arr) if arr is not None else None),
+                    "Day": int(t // DAY_MIN)
+                })
+        events_df = pd.DataFrame(all_events_data)
+        
         # ── RENDER ────────────────────────────────────────────────────────────
+        st.markdown(f"### Results (averaged over {num_replications} replications)")
+        
         st.markdown("#### Flow time metrics")
         st.dataframe(flow_df, use_container_width=True)
         st.dataframe(time_at_role_df, use_container_width=True)
@@ -1011,7 +1125,7 @@ elif st.session_state.wizard_step == 2:
         st.dataframe(rework_overview_df, use_container_width=True)
         st.dataframe(loop_origin_df, use_container_width=True)
 
-        st.markdown("#### Throughput (daily)")
+        st.markdown("#### Throughput (daily averages)")
         st.dataframe(throughput_full_df, use_container_width=True)
 
         st.markdown("#### Utilization (%)")
@@ -1065,10 +1179,11 @@ elif st.session_state.wizard_step == 2:
             "throughput_full_df": throughput_full_df,
             "util_df": util_df,
             "summary_df": summary_df.assign(Name=(scenario_name.strip() or default_name)),
-            "events": metrics.events,
+            "events_df": events_df,
+            "num_replications": num_replications
         }
 
-        runlog_pkg = _runlog_workbook(metrics.events, engine=_excel_engine())
+        runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
 
         cols_save = st.columns([1,1])
         with cols_save[0]:
