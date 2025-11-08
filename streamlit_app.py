@@ -7,6 +7,9 @@ import math
 import pandas as pd
 from io import BytesIO  # for downloads
 from scipy import stats
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.patches import Rectangle
 
 # =============================
 # Utilities
@@ -518,6 +521,295 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
 # =============================
 # NEW: Aggregate metrics across replications
 # =============================
+# =============================
+# Visualization functions
+# =============================
+def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Utilization heatmap: roles (y-axis) vs hour of day (x-axis)
+    Shows average utilization across all replications for each hour slot.
+    """
+    open_minutes = p["open_minutes"]
+    open_hours = open_minutes / 60.0
+    hours_in_day = int(np.ceil(open_hours))
+    
+    # Calculate utilization by hour for each role across replications
+    role_hour_utils = {r: np.zeros(hours_in_day) for r in active_roles}
+    role_hour_counts = {r: np.zeros(hours_in_day) for r in active_roles}
+    
+    for metrics in all_metrics:
+        # Calculate per-minute utilization from service time
+        for r in active_roles:
+            # Get time stamps and calculate utilization per minute
+            if len(metrics.time_stamps) > 0:
+                sim_minutes = int(p["sim_minutes"])
+                capacity = p.get(f"{r.lower().replace(' ', '')}_cap", 1)
+                
+                # Aggregate by hour of day (within clinic hours)
+                for minute in range(sim_minutes):
+                    day_minute = minute % DAY_MIN
+                    if day_minute < open_minutes:
+                        hour_of_day = int(day_minute // 60)
+                        if hour_of_day < hours_in_day:
+                            # Find if this role was working at this minute
+                            # Approximate from service_time_sum divided across time
+                            role_hour_counts[r][hour_of_day] += 1
+    
+    # Better approach: calculate from actual service times
+    open_time_per_hour = 60  # minutes
+    for metrics in all_metrics:
+        for r in active_roles:
+            capacity = {
+                "Front Desk": p["frontdesk_cap"],
+                "Nurse": p["nurse_cap"],
+                "Provider": p["provider_cap"],
+                "Back Office": p["backoffice_cap"]
+            }[r]
+            
+            if capacity > 0:
+                # Distribute service time evenly across open hours (approximation)
+                total_service = metrics.service_time_sum[r]
+                num_days = p["sim_minutes"] / DAY_MIN
+                avg_service_per_day = total_service / max(1, num_days)
+                service_per_hour = avg_service_per_day / max(1, hours_in_day)
+                
+                for h in range(hours_in_day):
+                    util = service_per_hour / (capacity * open_time_per_hour)
+                    role_hour_utils[r][h] += util
+    
+    # Average across replications
+    num_reps = len(all_metrics)
+    for r in active_roles:
+        role_hour_utils[r] /= num_reps
+    
+    # Create heatmap
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Prepare data matrix
+    data = np.array([role_hour_utils[r] for r in active_roles])
+    
+    im = ax.imshow(data, cmap='RdYlGn_r', aspect='auto', vmin=0, vmax=1, interpolation='nearest')
+    
+    # Set ticks
+    ax.set_xticks(np.arange(hours_in_day))
+    ax.set_xticklabels([f"{h}:00" for h in range(hours_in_day)])
+    ax.set_yticks(np.arange(len(active_roles)))
+    ax.set_yticklabels(active_roles)
+    
+    # Labels
+    ax.set_xlabel('Hour of Day', fontsize=12)
+    ax.set_ylabel('Role', fontsize=12)
+    ax.set_title('Average Utilization by Role and Hour', fontsize=14, fontweight='bold')
+    
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Utilization', rotation=270, labelpad=20)
+    
+    # Add text annotations
+    for i in range(len(active_roles)):
+        for j in range(hours_in_day):
+            text = ax.text(j, i, f'{data[i, j]:.0%}',
+                          ha="center", va="center", color="black", fontsize=8)
+    
+    plt.tight_layout()
+    return fig
+
+def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Line chart showing queue length over simulation time for each role.
+    Shows mean ± std across replications.
+    """
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Collect queue data from all replications
+    max_len = max(len(m.time_stamps) for m in all_metrics)
+    
+    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Provider': '#2ca02c', 'Back Office': '#d62728'}
+    
+    for role in active_roles:
+        # Pad all replication data to same length
+        all_queues = []
+        for metrics in all_metrics:
+            q = metrics.queues[role]
+            if len(q) < max_len:
+                q = q + [q[-1]] * (max_len - len(q)) if len(q) > 0 else [0] * max_len
+            all_queues.append(q[:max_len])
+        
+        # Calculate mean and std
+        queue_array = np.array(all_queues)
+        mean_queue = np.mean(queue_array, axis=0)
+        std_queue = np.std(queue_array, axis=0)
+        
+        # Time axis (convert minutes to hours for readability)
+        time_hours = np.array(all_metrics[0].time_stamps[:max_len]) / 60.0
+        
+        # Plot
+        color = colors.get(role, '#333333')
+        ax.plot(time_hours, mean_queue, label=role, color=color, linewidth=2)
+        ax.fill_between(time_hours, mean_queue - std_queue, mean_queue + std_queue, 
+                        alpha=0.2, color=color)
+    
+    ax.set_xlabel('Time (hours)', fontsize=12)
+    ax.set_ylabel('Queue Length', fontsize=12)
+    ax.set_title('Queue Length Over Time (Mean ± SD)', fontsize=14, fontweight='bold')
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return fig
+
+def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Stacked bar chart showing original work time vs rework time by role.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Calculate rework vs original time
+    original_time = {r: [] for r in active_roles}
+    rework_time = {r: [] for r in active_roles}
+    
+    for metrics in all_metrics:
+        # Count loops as proxy for rework
+        loop_counts = {
+            "Front Desk": metrics.loop_fd_insufficient,
+            "Nurse": metrics.loop_nurse_insufficient,
+            "Provider": metrics.loop_provider_insufficient,
+            "Back Office": metrics.loop_backoffice_insufficient
+        }
+        
+        for role in active_roles:
+            total_time = metrics.service_time_sum[role]
+            
+            # Estimate rework time (loops typically take 50% of original service time)
+            loops = loop_counts.get(role, 0)
+            svc_time = {
+                "Front Desk": p["svc_frontdesk"],
+                "Nurse": p["svc_nurse"],
+                "Provider": p["svc_provider"],
+                "Back Office": p["svc_backoffice"]
+            }[role]
+            
+            estimated_rework = loops * svc_time * 0.5
+            estimated_original = total_time - estimated_rework
+            
+            original_time[role].append(max(0, estimated_original))
+            rework_time[role].append(estimated_rework)
+    
+    # Average across replications
+    original_means = [np.mean(original_time[r]) for r in active_roles]
+    rework_means = [np.mean(rework_time[r]) for r in active_roles]
+    
+    x = np.arange(len(active_roles))
+    width = 0.6
+    
+    p1 = ax.bar(x, original_means, width, label='Original Work', color='#2ecc71')
+    p2 = ax.bar(x, rework_means, width, bottom=original_means, label='Rework', color='#e74c3c')
+    
+    ax.set_xlabel('Role', fontsize=12)
+    ax.set_ylabel('Time (minutes)', fontsize=12)
+    ax.set_title('Work Time: Original vs Rework', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(active_roles)
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels on bars
+    for i, (orig, rew) in enumerate(zip(original_means, rework_means)):
+        total = orig + rew
+        if rew > 0:
+            ax.text(i, total, f'{total:.0f}', ha='center', va='bottom', fontweight='bold')
+            ax.text(i, orig + rew/2, f'{rew:.0f}', ha='center', va='center', color='white', fontsize=9)
+    
+    plt.tight_layout()
+    return fig
+
+def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
+    """
+    Line chart showing daily throughput trend with confidence bands.
+    """
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    
+    # Collect daily completion counts from all replications
+    daily_completions = []
+    for metrics in all_metrics:
+        comp_times = metrics.task_completion_time
+        daily = []
+        for d in range(num_days):
+            start_t = d * DAY_MIN
+            end_t = (d + 1) * DAY_MIN
+            completed = sum(1 for ct in comp_times.values() if start_t <= ct < end_t)
+            daily.append(completed)
+        daily_completions.append(daily)
+    
+    # Calculate statistics
+    daily_array = np.array(daily_completions)
+    mean_daily = np.mean(daily_array, axis=0)
+    std_daily = np.std(daily_array, axis=0)
+    
+    days = np.arange(1, num_days + 1)
+    
+    ax.plot(days, mean_daily, marker='o', linewidth=2, markersize=8, color='#3498db', label='Mean')
+    ax.fill_between(days, mean_daily - std_daily, mean_daily + std_daily, 
+                    alpha=0.3, color='#3498db', label='± 1 SD')
+    
+    ax.set_xlabel('Day', fontsize=12)
+    ax.set_ylabel('Tasks Completed', fontsize=12)
+    ax.set_title('Daily Throughput Trend', fontsize=14, fontweight='bold')
+    ax.set_xticks(days)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return fig
+
+def plot_work_vs_wait(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Stacked bar chart showing average work time vs wait time per completed task by role.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    work_times = {r: [] for r in active_roles}
+    wait_times = {r: [] for r in active_roles}
+    
+    for metrics in all_metrics:
+        completed = len(metrics.task_completion_time)
+        if completed > 0:
+            for role in active_roles:
+                avg_work = metrics.service_time_sum[role] / completed
+                avg_wait = np.mean(metrics.waits[role]) if len(metrics.waits[role]) > 0 else 0
+                work_times[role].append(avg_work)
+                wait_times[role].append(avg_wait)
+        else:
+            for role in active_roles:
+                work_times[role].append(0)
+                wait_times[role].append(0)
+    
+    # Average across replications
+    work_means = [np.mean(work_times[r]) for r in active_roles]
+    wait_means = [np.mean(wait_times[r]) for r in active_roles]
+    
+    x = np.arange(len(active_roles))
+    width = 0.6
+    
+    p1 = ax.bar(x, work_means, width, label='Working Time', color='#3498db')
+    p2 = ax.bar(x, wait_means, width, bottom=work_means, label='Waiting Time', color='#e67e22')
+    
+    ax.set_xlabel('Role', fontsize=12)
+    ax.set_ylabel('Time per Completed Task (minutes)', fontsize=12)
+    ax.set_title('Work vs Wait Time by Role', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(active_roles)
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add total time labels
+    for i, (work, wait) in enumerate(zip(work_means, wait_means)):
+        total = work + wait
+        ax.text(i, total, f'{total:.1f}', ha='center', va='bottom', fontweight='bold')
+    
+    plt.tight_layout()
+    return fig
+
 def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: List[str]):
     """
     Aggregate metrics from multiple replications and return summary DataFrames with mean ± std.
@@ -1221,23 +1513,58 @@ elif st.session_state.wizard_step == 2:
         # ── RENDER ────────────────────────────────────────────────────────────
         st.markdown(f"### Results (averaged over {num_replications} replications)")
         
-        st.markdown("#### Flow time metrics")
-        st.dataframe(flow_df, use_container_width=True)
-        st.dataframe(time_at_role_df, use_container_width=True)
+        # GRAPHS
+        st.markdown("### 📊 Performance Visualizations")
+        
+        st.markdown("#### Utilization by Role and Hour")
+        fig1 = plot_utilization_heatmap(all_metrics, p, active_roles)
+        st.pyplot(fig1)
+        plt.close(fig1)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### Queue Length Over Time")
+            fig2 = plot_queue_over_time(all_metrics, p, active_roles)
+            st.pyplot(fig2)
+            plt.close(fig2)
+        
+        with col2:
+            st.markdown("#### Daily Throughput Trend")
+            fig3 = plot_daily_throughput(all_metrics, p)
+            st.pyplot(fig3)
+            plt.close(fig3)
+        
+        col3, col4 = st.columns(2)
+        with col3:
+            st.markdown("#### Work vs Wait Time")
+            fig4 = plot_work_vs_wait(all_metrics, p, active_roles)
+            st.pyplot(fig4)
+            plt.close(fig4)
+        
+        with col4:
+            st.markdown("#### Rework Impact")
+            fig5 = plot_rework_impact(all_metrics, p, active_roles)
+            st.pyplot(fig5)
+            plt.close(fig5)
+        
+        # TABLES (collapsed)
+        with st.expander("📋 Detailed Tables (click to expand)", expanded=False):
+            st.markdown("#### Flow time metrics")
+            st.dataframe(flow_df, use_container_width=True)
+            st.dataframe(time_at_role_df, use_container_width=True)
 
-        st.markdown("#### Queue metrics")
-        st.dataframe(queue_df, use_container_width=True)
+            st.markdown("#### Queue metrics")
+            st.dataframe(queue_df, use_container_width=True)
 
-        st.markdown("#### Rework metrics")
-        st.dataframe(rework_overview_df, use_container_width=True)
-        st.dataframe(loop_origin_df, use_container_width=True)
+            st.markdown("#### Rework metrics")
+            st.dataframe(rework_overview_df, use_container_width=True)
+            st.dataframe(loop_origin_df, use_container_width=True)
 
-        st.markdown("#### Throughput (daily averages)")
-        st.dataframe(throughput_full_df, use_container_width=True)
+            st.markdown("#### Throughput (daily averages)")
+            st.dataframe(throughput_full_df, use_container_width=True)
 
-        st.markdown("#### Utilization (%)")
-        st.dataframe(util_df, use_container_width=True)
-
+            st.markdown("#### Utilization (%)")
+            st.dataframe(util_df, use_container_width=True)
 
        # ---- Download run log ----
         st.markdown("### Download")
