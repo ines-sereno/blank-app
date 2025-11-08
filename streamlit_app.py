@@ -563,7 +563,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
         role_hour_utils[r] /= num_reps
     
     # Create heatmap (smaller size)
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(8, 3))
     
     # Prepare data matrix
     data = np.array([role_hour_utils[r] for r in active_roles])
@@ -599,7 +599,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     Line chart showing queue length over simulation time for each role.
     Shows mean ± std across replications.
     """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(8, 4))
     
     # Collect queue data from all replications
     max_len = max(len(m.time_stamps) for m in all_metrics)
@@ -641,7 +641,7 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     """
     Stacked bar chart showing original work time vs rework time by role.
     """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(8, 4))
     
     # Calculate rework vs original time
     original_time = {r: [] for r in active_roles}
@@ -706,7 +706,7 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
     """
     Line chart showing daily throughput trend with confidence bands.
     """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(8, 4))
     
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     
@@ -746,7 +746,7 @@ def plot_work_vs_wait(all_metrics: List[Metrics], p: Dict, active_roles: List[st
     """
     Stacked bar chart showing average work time vs wait time per completed task by role.
     """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(8, 4))
     
     work_times = {r: [] for r in active_roles}
     wait_times = {r: [] for r in active_roles}
@@ -1425,15 +1425,11 @@ elif st.session_state.wizard_step == 2:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
 
-    # Process diagram (inline before run; collapses after run)
+    # Process diagram (always collapsed but openable)
     dot = build_process_graph(st.session_state["design"])
-    if not st.session_state.ran:
-        st.markdown("### Process preview")
+    with st.expander("📋 Process Preview (click to expand)", expanded=False):
         st.caption("Live view of staffing, routing, nurse protocol, and loop settings based on your saved design.")
         st.graphviz_chart(dot, use_container_width=False)
-    else:
-        with st.expander("Process preview (click to expand)", expanded=False):
-            st.graphviz_chart(dot, use_container_width=False)
 
     seed = st.number_input("Random seed", 0, 999999, 42, 1, "%d", help="Seed for reproducibility.")
     num_replications = st.number_input("Number of replications", 1, 1000, 30, 1, "%d", 
