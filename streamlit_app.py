@@ -594,7 +594,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
     for r in active_roles:
         role_hour_utils[r] /= num_reps
     
-    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=80)
+    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=40)
     data = np.array([role_hour_utils[r] for r in active_roles])
     im = ax.imshow(data, cmap='RdYlGn_r', aspect='auto', vmin=0, vmax=1, interpolation='nearest')
     
@@ -617,7 +617,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
     return fig
 
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     max_len = max(len(m.time_stamps) for m in all_metrics)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Provider': '#2ca02c', 'Back Office': '#d62728'}
     
@@ -691,7 +691,7 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     return fig
 
 def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     daily_completions = []
     
@@ -723,7 +723,7 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
     return fig
 
 def plot_work_vs_wait(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     work_times = {r: [] for r in active_roles}
     wait_times = {r: [] for r in active_roles}
     
@@ -770,7 +770,7 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     Bar chart showing burnout scores by role + overall clinic.
     Color-coded by severity.
     """
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     
     roles_plot = active_roles + ["Overall Clinic"]
     scores = [burnout_data["by_role"][r]["overall"] for r in active_roles]
