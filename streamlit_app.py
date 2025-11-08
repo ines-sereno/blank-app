@@ -1131,82 +1131,18 @@ elif st.session_state.wizard_step == 2:
         st.markdown("#### Utilization (%)")
         st.dataframe(util_df, use_container_width=True)
 
-        # ---- Compare saved interventions ----
-        if len(st.session_state.saved_runs) >= 1:
-            st.markdown("### Saved interventions")
-            names = [r["name"] for r in st.session_state.saved_runs]
-            st.write(", ".join(f"**{n}**" for n in names))
 
-        if len(st.session_state.saved_runs) >= 2:
-            st.markdown("### Compare interventions (summary)")
-            comp_df = pd.concat([r["summary_df"] for r in st.session_state.saved_runs], ignore_index=True)
-            cols = ["Name","Avg turnaround (min)","Median turnaround (min)","Same-day completion (%)","Rework (% of completed)","Utilization overall (%)"]
-            comp_df = comp_df[cols]
-            st.dataframe(comp_df, use_container_width=True)
-
-            all_pkg = _all_runs_workbook(st.session_state.saved_runs, engine=_excel_engine())
-            st.download_button(
-                "Download all saved interventions",
-                data=all_pkg["bytes"],
-                file_name=f"interventions_all.{all_pkg['ext']}",
-                mime=all_pkg["mime"],
-                use_container_width=True
-            )
-
-        # Persist results
-        st.session_state["results"] = dict(
-            util_df=util_df,
-            queue_df=queue_df,
-            flow_df=flow_df,
-            time_at_role_df=time_at_role_df,
-            rework_overview_df=rework_overview_df,
-            loop_origin_df=loop_origin_df,
-            throughput_full_df=throughput_full_df,
-        )
-
-        # ---- Name/save & downloads UI ----
-        st.markdown("### Save / download")
-        default_name = f"Intervention {len(st.session_state.saved_runs)+1}"
-        scenario_name = st.text_input("Intervention name", value=default_name, help="Give this run a name to compare later.")
-        run_package = {
-            "name": (scenario_name.strip() or default_name),
-            "design": p,
-            "flow_df": flow_df,
-            "time_at_role_df": time_at_role_df,
-            "queue_df": queue_df,
-            "rework_overview_df": rework_overview_df,
-            "loop_origin_df": loop_origin_df,
-            "throughput_full_df": throughput_full_df,
-            "util_df": util_df,
-            "summary_df": summary_df.assign(Name=(scenario_name.strip() or default_name)),
-            "events_df": events_df,
-            "num_replications": num_replications
-        }
-
-        runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
-
-        cols_save = st.columns([1,1])
-        with cols_save[0]:
-            save_btn = st.button("Save intervention", type="secondary", use_container_width=True)
-        with cols_save[1]:
-            engine = _excel_engine()
-            single_pkg = _workbook_from_run(run_package, engine=engine)
-            st.download_button(
-                "Download current run",
-                data=single_pkg["bytes"],
-                file_name=f"{run_package['name']}.{single_pkg['ext']}",
-                mime=single_pkg["mime"],
-                use_container_width=True
-            )
-
+       # ---- Download run log ----
+        st.markdown("### Download")
+        
+        with st.spinner("Producing run log for download..."):
+            runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
+        
         st.download_button(
             "Download run log (Excel)",
             data=runlog_pkg["bytes"],
-            file_name=f"{run_package['name']} - RunLog.{runlog_pkg['ext']}",
+            file_name=f"RunLog_{num_replications}reps.{runlog_pkg['ext']}",
             mime=runlog_pkg["mime"],
-            use_container_width=True
+            use_container_width=True,
+            type="primary"
         )
-
-        if save_btn:
-            st.session_state.saved_runs.append(run_package)
-            st.success(f"Saved intervention: **{run_package['name']}**")
