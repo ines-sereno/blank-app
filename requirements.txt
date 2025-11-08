@@ -7,3 +7,4 @@ altair
 graphviz
 plotly
 xlsxwriter
+spicy
