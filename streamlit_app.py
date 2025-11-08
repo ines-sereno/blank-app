@@ -563,7 +563,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
         role_hour_utils[r] /= num_reps
     
     # Create heatmap (smaller size)
-    fig, ax = plt.subplots(figsize=(8, 3))
+    fig, ax = plt.subplots(figsize=(8, 3), dpi=80)
     
     # Prepare data matrix
     data = np.array([role_hour_utils[r] for r in active_roles])
@@ -599,7 +599,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     Line chart showing queue length over simulation time for each role.
     Shows mean ± std across replications.
     """
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=80)
     
     # Collect queue data from all replications
     max_len = max(len(m.time_stamps) for m in all_metrics)
@@ -641,7 +641,7 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     """
     Stacked bar chart showing original work time vs rework time by role.
     """
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=80)
     
     # Calculate rework vs original time
     original_time = {r: [] for r in active_roles}
@@ -706,7 +706,7 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
     """
     Line chart showing daily throughput trend with confidence bands.
     """
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=80)
     
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     
@@ -746,7 +746,7 @@ def plot_work_vs_wait(all_metrics: List[Metrics], p: Dict, active_roles: List[st
     """
     Stacked bar chart showing average work time vs wait time per completed task by role.
     """
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=80)
     
     work_times = {r: [] for r in active_roles}
     wait_times = {r: [] for r in active_roles}
@@ -1517,7 +1517,7 @@ elif st.session_state.wizard_step == 2:
                 "an increasing or stable trend indicates the system is keeping up with demand."
             )
         fig_throughput = plot_daily_throughput(all_metrics, p)
-        st.pyplot(fig_throughput)
+        st.pyplot(fig_throughput, use_container_width=False)
         plt.close(fig_throughput)
         
         st.markdown("")
@@ -1535,7 +1535,7 @@ elif st.session_state.wizard_step == 2:
                 "Different colored lines represent different roles."
             )
         fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
-        st.pyplot(fig_queue)
+        st.pyplot(fig_queue, use_container_width=False)
         plt.close(fig_queue)
         
         st.markdown("---")
@@ -1562,7 +1562,7 @@ elif st.session_state.wizard_step == 2:
                 "\n\nConsistent red zones indicate chronic overwork and high burnout risk."
             )
         fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
-        st.pyplot(fig_heatmap)
+        st.pyplot(fig_heatmap, use_container_width=False)
         plt.close(fig_heatmap)
         
         st.markdown("")
@@ -1582,7 +1582,7 @@ elif st.session_state.wizard_step == 2:
                 "Both contribute to burnout. Efficiency % shows work/(work+wait)."
             )
         fig_work_wait = plot_work_vs_wait(all_metrics, p, active_roles)
-        st.pyplot(fig_work_wait)
+        st.pyplot(fig_work_wait, use_container_width=False)
         plt.close(fig_work_wait)
         
         st.markdown("")
@@ -1601,7 +1601,7 @@ elif st.session_state.wizard_step == 2:
                 "Rework is especially frustrating and contributes significantly to staff burnout."
             )
         fig_rework = plot_rework_impact(all_metrics, p, active_roles)
-        st.pyplot(fig_rework)
+        st.pyplot(fig_rework, use_container_width=False)
         plt.close(fig_rework)
         
         st.markdown("---")
