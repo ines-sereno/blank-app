@@ -129,8 +129,46 @@ def pretty_step(code):
 # =============================
 # System
 # =============================
+# =============================
+# Availability schedule generator
+# =============================
+def generate_availability_schedule(sim_minutes: int, role: str, minutes_per_hour: int, seed_offset: int = 0) -> set:
+    """
+    Generate a set of minute timestamps when a role is available.
+    For each hour, randomly select 'minutes_per_hour' minutes to be available.
+    Returns a set of available minute timestamps.
+    """
+    if minutes_per_hour >= 60:
+        # If available all the time, return all minutes
+        return set(range(int(sim_minutes)))
+    
+    if minutes_per_hour <= 0:
+        # If never available, return empty set
+        return set()
+    
+    # Use deterministic random based on role name for reproducibility
+    local_random = random.Random(hash(role) + seed_offset)
+    
+    available_minutes = set()
+    total_hours = int(np.ceil(sim_minutes / 60.0))
+    
+    for hour in range(total_hours):
+        hour_start = hour * 60
+        hour_end = min((hour + 1) * 60, sim_minutes)
+        hour_length = hour_end - hour_start
+        
+        # Number of minutes available in this hour
+        available_in_hour = min(minutes_per_hour, hour_length)
+        
+        # Randomly select which minutes in this hour are available
+        all_minutes_in_hour = list(range(hour_start, hour_end))
+        selected = local_random.sample(all_minutes_in_hour, available_in_hour)
+        available_minutes.update(selected)
+    
+    return available_minutes
+
 class CHCSystem:
-    def __init__(self, env, params, metrics):
+    def __init__(self, env, params, metrics, seed_offset=0):
         self.env = env
         self.p = params
         self.m = metrics
@@ -153,10 +191,29 @@ class CHCSystem:
             "Provider": self.provider,
             "Back Office": self.backoffice
         }
+        
+        # Generate availability schedules for each role
+        avail_params = params.get("availability_per_hour", {
+            "Front Desk": 60, "Nurse": 60, "Provider": 60, "Back Office": 60
+        })
+        self.availability = {
+            "Front Desk": generate_availability_schedule(
+                params["sim_minutes"], "Front Desk", avail_params.get("Front Desk", 60), seed_offset
+            ),
+            "Nurse": generate_availability_schedule(
+                params["sim_minutes"], "Nurse", avail_params.get("Nurse", 60), seed_offset
+            ),
+            "Provider": generate_availability_schedule(
+                params["sim_minutes"], "Provider", avail_params.get("Provider", 60), seed_offset
+            ),
+            "Back Office": generate_availability_schedule(
+                params["sim_minutes"], "Back Office", avail_params.get("Back Office", 60), seed_offset
+            ),
+        }
 
     def scheduled_service(self, resource, role_account, mean_time, role_for_dist=None):
         """
-        Respect clinic hours; if resource is None (capacity 0), service is skipped.
+        Respect clinic hours AND role availability; if resource is None (capacity 0), service is skipped.
         """
         if resource is None or mean_time <= 1e-12:
             return
@@ -168,12 +225,36 @@ class CHCSystem:
 
         # micro-optimization: local reference
         open_minutes = self.p["open_minutes"]
+        available_set = self.availability.get(role_account, set())
 
         while remaining > 1e-9:
+            current_min = int(self.env.now)
+            
+            # Check if clinic is open
             if not is_open(self.env.now, open_minutes):
                 yield self.env.timeout(minutes_until_open(self.env.now, open_minutes))
+                continue
+            
+            # Check if role is available at this minute
+            if len(available_set) > 0 and current_min not in available_set:
+                # Role not available, wait 1 minute and check again
+                yield self.env.timeout(1)
+                continue
+            
+            # Role is available and clinic is open - do work
             window = minutes_until_close(self.env.now, open_minutes)
-            work_chunk = min(remaining, window)
+            
+            # Find how long the role stays available
+            if len(available_set) > 0:
+                avail_window = 1
+                check_min = current_min + 1
+                while check_min in available_set and avail_window < window and avail_window < remaining:
+                    avail_window += 1
+                    check_min += 1
+                work_chunk = min(remaining, window, avail_window)
+            else:
+                work_chunk = min(remaining, window)
+            
             with resource.request() as req:
                 t_req = self.env.now
                 yield req
@@ -423,7 +504,7 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
     
     metrics = Metrics()
     env = simpy.Environment()
-    system = CHCSystem(env, p, metrics)
+    system = CHCSystem(env, p, metrics, seed_offset=seed)
 
     for role in ROLES:
         rate = int(p["arrivals_per_hour_by_role"].get(role, 0))
@@ -872,6 +953,26 @@ if st.session_state.wizard_step == 1:
                                      help="Average number of tasks arriving directly to the Back Office per hour.",
                                      disabled=bo_off)
 
+        st.markdown("### Role availability (minutes per hour)")
+        st.caption("How many minutes each hour each role is available to work on these tasks.")
+        cAv1, cAv2, cAv3, cAv4 = st.columns(4)
+        with cAv1:
+            avail_fd = st.number_input("Front Desk", 0, 60, _init_ss("avail_fd", 45), 1, "%d",
+                                    help="Minutes per hour Front Desk staff are available.",
+                                    disabled=fd_off)
+        with cAv2:
+            avail_nu = st.number_input("Nurse / MAs", 0, 60, _init_ss("avail_nu", 20), 1, "%d",
+                                   help="Minutes per hour Nurses are available.",
+                                   disabled=nu_off)
+        with cAv3:
+            avail_pr = st.number_input("Providers", 0, 60, _init_ss("avail_pr", 30), 1, "%d",
+                                   help="Minutes per hour Providers are available.",
+                                   disabled=pr_off)
+        with cAv4:
+            avail_bo = st.number_input("Back Office", 0, 60, _init_ss("avail_bo", 45), 1, "%d",
+                                   help="Minutes per hour Back Office staff are available.",
+                                   disabled=bo_off)
+
         with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
             st.markdown("#### Service times (mean minutes)")
             cS1, cS2 = st.columns(2)
@@ -1008,6 +1109,12 @@ if st.session_state.wizard_step == 1:
                     "Nurse":      int(arr_nu),
                     "Provider":   int(arr_pr),
                     "Back Office":int(arr_bo),
+                },
+                availability_per_hour={
+                    "Front Desk": int(avail_fd),
+                    "Nurse":      int(avail_nu),
+                    "Provider":   int(avail_pr),
+                    "Back Office":int(avail_bo),
                 },
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider,   svc_backoffice=svc_backoffice,
