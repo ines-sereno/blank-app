@@ -722,49 +722,6 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
     plt.tight_layout()
     return fig
 
-def plot_work_vs_wait(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
-    work_times = {r: [] for r in active_roles}
-    wait_times = {r: [] for r in active_roles}
-    
-    for metrics in all_metrics:
-        completed = len(metrics.task_completion_time)
-        if completed > 0:
-            for role in active_roles:
-                avg_work = metrics.service_time_sum[role] / completed
-                avg_wait = np.mean(metrics.waits[role]) if len(metrics.waits[role]) > 0 else 0
-                work_times[role].append(avg_work)
-                wait_times[role].append(avg_wait)
-        else:
-            for role in active_roles:
-                work_times[role].append(0)
-                wait_times[role].append(0)
-    
-    work_means = [np.mean(work_times[r]) for r in active_roles]
-    wait_means = [np.mean(wait_times[r]) for r in active_roles]
-    
-    x = np.arange(len(active_roles))
-    width = 0.6
-    ax.bar(x, work_means, width, label='Working', color='#2ecc71')
-    ax.bar(x, wait_means, width, bottom=work_means, label='Waiting', color='#f39c12')
-    
-    ax.set_xlabel('Role', fontsize=10)
-    ax.set_ylabel('Time/Task (min)', fontsize=10)
-    ax.set_title('Work vs Wait Time', fontsize=11, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(active_roles, fontsize=9)
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    for i, (work, wait) in enumerate(zip(work_means, wait_means)):
-        total = work + wait
-        if total > 0:
-            efficiency = 100 * work / total
-            ax.text(i, total + 0.3, f'{efficiency:.0f}%', ha='center', va='bottom', fontsize=8)
-    
-    plt.tight_layout()
-    return fig
-
 def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     """
     Bar chart showing burnout scores by role + overall clinic.
@@ -814,7 +771,7 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
         Patch(facecolor='#e67e22', label='High (50-75)'),
         Patch(facecolor='#e74c3c', label='Severe (75-100)')
     ]
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=7)
+    ax.legend(handles=legend_elements, loc='lower left', fontsize=5)
     
     plt.tight_layout()
     return fig
@@ -1273,88 +1230,76 @@ elif st.session_state.wizard_step == 2:
         st.caption(f"Averaged over {num_replications} independent replications")
         st.markdown("---")
         
+        # ============================================================
         # SECTION 1: SYSTEM PERFORMANCE
+        # ============================================================
         st.markdown("## 📈 System Performance")
         st.caption("How well is the clinic handling incoming work?")
         
-        col1, col2 = st.columns([4, 1])
+        # Graphs side by side
+        col1, col2 = st.columns(2)
         with col1:
             st.markdown("### Daily Throughput Trend")
+            fig_throughput = plot_daily_throughput(all_metrics, p)
+            st.pyplot(fig_throughput, use_container_width=False)
+            plt.close(fig_throughput)
+        
         with col2:
+            st.markdown("### Queue Length Over Time")
+            fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
+            st.pyplot(fig_queue, use_container_width=False)
+            plt.close(fig_queue)
+        
+        # Help text below graphs
+        col1, col2 = st.columns(2)
+        with col1:
             help_icon("**Calculation:** Counts tasks completed each day across replications. "
                      "Line shows mean, shaded area is ±1 SD. **Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
-        fig_throughput = plot_daily_throughput(all_metrics, p)
-        st.pyplot(fig_throughput, use_container_width=False)
-        plt.close(fig_throughput)
-        
-        st.markdown("")
-        
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown("### Queue Length Over Time")
         with col2:
             help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
                      "**Interpretation:** Persistent high queues = bottlenecks. Growing queues = can't keep up.")
-        fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
-        st.pyplot(fig_queue, use_container_width=False)
-        plt.close(fig_queue)
         
         st.markdown("---")
         
-        # SECTION 2: BURNOUT & WORKLOAD
+        # ============================================================
+        # SECTION 2: BURNOUT & WORKLOAD INDICATORS
+        # ============================================================
         st.markdown("## 🔥 Burnout & Workload Indicators")
         st.caption("Which roles are at risk of being overwhelmed?")
         
-        col1, col2 = st.columns([4, 1])
+        # Top row: Burnout Index | Utilization Heatmap
+        col1, col2 = st.columns(2)
         with col1:
             st.markdown("### Burnout Index (MBI-based)")
+            fig_burnout = plot_burnout_scores(burnout_data, active_roles)
+            st.pyplot(fig_burnout, use_container_width=False)
+            plt.close(fig_burnout)
+            
+            # Rework Impact below Burnout Index
+            st.markdown("### Rework Impact")
+            fig_rework = plot_rework_impact(all_metrics, p, active_roles)
+            st.pyplot(fig_rework, use_container_width=False)
+            plt.close(fig_rework)
+        
         with col2:
-            help_icon("**Calculation:** Composite score based on Maslach Burnout Inventory (MBI) framework. "
+            st.markdown("### Utilization Heatmap")
+            fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
+            st.pyplot(fig_heatmap, use_container_width=False)
+            plt.close(fig_heatmap)
+        
+        # Help text below
+        col1, col2 = st.columns(2)
+        with col1:
+            help_icon("**Burnout Calculation:** Composite score based on Maslach Burnout Inventory (MBI). "
                      "Combines: (1) Emotional Exhaustion (40%): utilization + peak hours + availability constraints; "
                      "(2) Depersonalization (30%): rework + queue pressure + incompletion; "
                      "(3) Reduced Accomplishment (30%): wait time + throughput gaps. "
-                     "\n\n**Interpretation:** "
-                     "Green (<25) = Low risk. Orange (25-50) = Moderate. Dark orange (50-75) = High. Red (75-100) = Severe burnout risk. "
-                     "Dashed line at 50 indicates intervention threshold.")
-        fig_burnout = plot_burnout_scores(burnout_data, active_roles)
-        st.pyplot(fig_burnout, use_container_width=False)
-        plt.close(fig_burnout)
-        
-        st.markdown("")
-        
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown("### Utilization Heatmap")
+                     "\n\n**Interpretation:** Green (<25) = Low. Orange (25-50) = Moderate. Dark orange (50-75) = High. Red (75-100) = Severe.")
+            help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
+                     "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
         with col2:
-            help_icon("**Calculation:** % of available time each role spends working (service time ÷ capacity × available minutes) per hour. "
-                     "**Interpretation:** Red (>80%) = high burnout risk, little breathing room. Yellow (50-80%) = moderate. Green (<50%) = underutilized.")
-        fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
-        st.pyplot(fig_heatmap, use_container_width=False)
-        plt.close(fig_heatmap)
-        
-        st.markdown("")
-        
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown("### Work vs Wait Time by Role")
-        with col2:
-            help_icon("**Calculation:** Average time per completed task: working (green) vs waiting (orange). "
-                     "**Interpretation:** High work = exhaustion. High wait = frustration. Both contribute to burnout. Efficiency % = work/(work+wait).")
-        fig_work_wait = plot_work_vs_wait(all_metrics, p, active_roles)
-        st.pyplot(fig_work_wait, use_container_width=False)
-        plt.close(fig_work_wait)
-        
-        st.markdown("")
-        
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown("### Rework Impact")
-        with col2:
-            help_icon("**Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
-                     "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework is frustrating and drives burnout.")
-        fig_rework = plot_rework_impact(all_metrics, p, active_roles)
-        st.pyplot(fig_rework, use_container_width=False)
-        plt.close(fig_rework)
+            help_icon("**Calculation:** % of available time each role spends working per hour (service time ÷ capacity × available minutes). "
+                     "**Interpretation:** Red (>80%) = high burnout risk. Yellow (50-80%) = moderate. Green (<50%) = underutilized.")
         
         st.markdown("---")
 
