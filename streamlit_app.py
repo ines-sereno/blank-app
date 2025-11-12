@@ -1001,13 +1001,15 @@ if st.session_state.wizard_step == 1:
                "Provider": _init_ss("provider_cap", 1), "Back Office": _init_ss("backoffice_cap", 1)}
 
     # Define route_row_ui function BEFORE the form
-    def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False) -> Dict[str, float]:
+    def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False, 
+                     fd_cap_val: int = 0, nu_cap_val: int = 0, pr_cap_val: int = 0, bo_cap_val: int = 0) -> Dict[str, float]:
+        current_cap_map = {"Front Desk": fd_cap_val, "Nurse": nu_cap_val, "Provider": pr_cap_val, "Back Office": bo_cap_val}
         st.markdown(f"**{from_role} →**")
         targets = [r for r in ROLES if r != from_role] + [DONE]
         cols = st.columns(len(targets))
         row: Dict[str, float] = {}
         for i, tgt in enumerate(targets):
-            tgt_disabled = disabled_source or (tgt in ROLES and cap_map[tgt] == 0)
+            tgt_disabled = disabled_source or (tgt in ROLES and current_cap_map[tgt] == 0)
             label_name = "Done" if tgt == DONE else tgt
             key_name = f"r_{from_role}_{'done' if tgt==DONE else label_name.replace(' ','_').lower()}"
             default_val = float(defaults.get(tgt, 0.0))
@@ -1018,7 +1020,7 @@ if st.session_state.wizard_step == 1:
                     val = 0.0
             row[tgt] = val
         return row
-
+                         
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
         sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
@@ -1073,52 +1075,52 @@ if st.session_state.wizard_step == 1:
         with st.expander("🏢 Front Desk", expanded=True):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
-                st.session_state.fd_cap = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
+                fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
                                                            help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
             with cFD2:
-                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=fd_off, key="arr_fd_input",
+                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
                                          help="Average number of tasks arriving at Front Desk per hour (e.g., check-ins, phone calls)")
             with cFD3:
-                avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=fd_off, key="avail_fd_input",
+                avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
                                            help="Minutes per hour that front desk staff are available for work (60 = always available, 45 = 75% available due to breaks, meetings, etc.)")
         
         # Nurse / MAs
         with st.expander("💉 Nurse / MAs", expanded=True):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
-                st.session_state.nurse_cap = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
+                nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
                                                               help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
             with cNU2:
-                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off, key="arr_nu_input",
+                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
                                          help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
             with cNU3:
-                avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=nu_off, key="avail_nu_input",
+                avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
                                            help="Minutes per hour that nurses are available for work (lower values simulate interruptions, charting time, etc.)")
         
         # Provider
         with st.expander("👨‍⚕️ Provider", expanded=True):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
-                st.session_state.provider_cap = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
+                pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
                                                                  help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
             with cPR2:
-                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off, key="arr_pr_input",
+                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
                                          help="Average number of tasks arriving directly at Providers per hour (e.g., direct consultations)")
             with cPR3:
-                avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=pr_off, key="avail_pr_input",
+                avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
                                            help="Minutes per hour that providers are available for patient-facing work (accounts for charting, calls, etc.)")
         
         # Back Office
         with st.expander("📋 Back Office", expanded=True):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
-                st.session_state.bo_cap = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
+                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
                                                            help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
             with cBO2:
-                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=bo_off, key="arr_bo_input",
+                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
                                          help="Average number of tasks arriving directly at Back Office per hour (e.g., insurance claims, billing questions)")
             with cBO3:
-                avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=bo_off, key="avail_bo_input",
+                avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
                                            help="Minutes per hour that back office staff are available for work")
 
         with st.expander("⚙️ Advanced Settings – Service times, loops & routing", expanded=False):
@@ -1126,90 +1128,98 @@ if st.session_state.wizard_step == 1:
             # Front Desk
             with st.expander("🏢 Front Desk", expanded=False):
                 st.markdown("**Service Time**")
-                svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off,
+                svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
                                           help="Average time (minutes) for front desk to complete a task")
                 
                 st.markdown("**Rework Loops**")
                 cFDL1, cFDL2, cFDL3 = st.columns(3)
                 with cFDL1:
-                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=fd_off, key="fd_p_insuff",
+                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff",
                                             help="Probability that front desk encounters missing information requiring rework")
                 with cFDL2:
-                    max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=fd_off, key="fd_max_loops",
+                    max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops",
                                                    help="Maximum number of rework loops before giving up")
                 with cFDL3:
-                    fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=fd_off, key="fd_delay",
+                    fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=(fd_cap_form==0), key="fd_delay",
                                               help="Time delay (minutes) before starting rework loop")
                 
                 st.markdown("**Routing: Where tasks go after Front Desk**")
-                fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Provider": 0.10, "Back Office": 0.10, DONE: 0.30}, disabled_source=fd_off)
+                fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Provider": 0.10, "Back Office": 0.10, DONE: 0.30}, 
+                                       disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
             # Nurse / MAs
             with st.expander("💉 Nurse / MAs", expanded=False):
                 st.markdown("**Service Times**")
                 cNS1, cNS2 = st.columns(2)
                 with cNS1:
-                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off,
+                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0),
                                                     help="Average time (minutes) when nurse resolves task via protocol without provider")
-                    p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off,
+                    p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=(nu_cap_form==0),
                                           help="Probability that a nurse can resolve a task using standing protocols without provider involvement")
                 with cNS2:
-                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off,
+                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=(nu_cap_form==0),
                                          help="Average time (minutes) for nurse tasks that don't use protocol")
                 
                 st.markdown("**Rework Loops**")
                 cNUL1, cNUL2 = st.columns(2)
                 with cNUL1:
-                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=nu_off, key="nu_p_insuff",
+                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff",
                                                help="Probability that nurse needs to send task back to front desk for more info")
                 with cNUL2:
-                    max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=nu_off, key="nu_max_loops",
+                    max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops",
                                                       help="Maximum number of nurse rework loops before giving up")
                 
                 st.markdown("**Routing: Where tasks go after Nurse**")
-                nu_route = route_row_ui("Nurse", {"Provider": 0.40, "Back Office": 0.20, DONE: 0.40}, disabled_source=nu_off)
+                nu_route = route_row_ui("Nurse", {"Provider": 0.40, "Back Office": 0.20, DONE: 0.40}, 
+                                       disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
             # Provider
             with st.expander("👨‍⚕️ Provider", expanded=False):
                 st.markdown("**Service Time**")
-                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off,
+                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=(pr_cap_form==0),
                                         help="Average time (minutes) for provider to see a patient or complete a task")
                 
                 st.markdown("**Rework Loops**")
                 cPRL1, cPRL2, cPRL3 = st.columns(3)
                 with cPRL1:
-                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off, key="pr_p_insuff",
+                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff",
                                                   help="Probability that provider task needs rework (unclear orders, missing info, etc.)")
                 with cPRL2:
-                    max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off, key="pr_max_loops",
+                    max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops",
                                                         help="Maximum number of provider rework loops before giving up")
                 with cPRL3:
-                    provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off, key="pr_delay",
+                    provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay",
                                                     help="Time delay (minutes) before provider rework")
                 
                 st.markdown("**Routing: Where tasks go after Provider**")
-                pr_route = route_row_ui("Provider", {"Back Office": 0.30, DONE: 0.70}, disabled_source=pr_off)
+                pr_route = route_row_ui("Provider", {"Back Office": 0.30, DONE: 0.70}, 
+                                       disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
             # Back Office
             with st.expander("📋 Back Office", expanded=False):
                 st.markdown("**Service Time**")
-                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off,
+                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0),
                                            help="Average time (minutes) for back office to complete a task (billing, insurance, etc.)")
                 
                 st.markdown("**Rework Loops**")
                 cBOL1, cBOL2, cBOL3 = st.columns(3)
                 with cBOL1:
-                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off, key="bo_p_insuff",
+                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff",
                                                     help="Probability that back office task needs rework (billing errors, missing documentation)")
                 with cBOL2:
-                    max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=bo_off, key="bo_max_loops",
+                    max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops",
                                                           help="Maximum number of back office rework loops before giving up")
                 with cBOL3:
-                    backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off, key="bo_delay",
+                    backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=(bo_cap_form==0), key="bo_delay",
                                                       help="Time delay (minutes) before back office rework")
                 
                 st.markdown("**Routing: Where tasks go after Back Office**")
-                bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, disabled_source=bo_off)
+                bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, 
+                                       disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
             # Build the route dictionary
             route: Dict[str, Dict[str, float]] = {}
@@ -1217,10 +1227,16 @@ if st.session_state.wizard_step == 1:
             route["Nurse"] = nu_route
             route["Provider"] = pr_route
             route["Back Office"] = bo_route
-            
+
         saved = st.form_submit_button("Save", type="primary")
 
         if saved:
+            # Save capacity values to session state
+            st.session_state.fd_cap = fd_cap_form
+            st.session_state.nurse_cap = nu_cap_form
+            st.session_state.provider_cap = pr_cap_form
+            st.session_state.bo_cap = bo_cap_form
+            
             open_minutes = int(open_hours * MIN_PER_HOUR)
             sim_minutes = int(sim_days * DAY_MIN)
 
@@ -1230,13 +1246,13 @@ if st.session_state.wizard_step == 1:
             for r in ROLES:
                 if r in route:
                     for tgt in list(route[r].keys()):
-                        if tgt in ROLES and cap_map[tgt] == 0:
+                        if tgt in ROLES and {"Front Desk": fd_cap_form, "Nurse": nu_cap_form, "Provider": pr_cap_form, "Back Office": bo_cap_form}[tgt] == 0:
                             route[r][tgt] = 0.0
 
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes, open_minutes=open_minutes,
-                frontdesk_cap=st.session_state.fd_cap, nurse_cap=st.session_state.nurse_cap,
-                provider_cap=st.session_state.provider_cap, backoffice_cap=st.session_state.bo_cap,
+                frontdesk_cap=fd_cap_form, nurse_cap=nu_cap_form,
+                provider_cap=pr_cap_form, backoffice_cap=bo_cap_form,
                 arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
                                           "Provider": int(arr_pr), "Back Office": int(arr_bo)},
                 availability_per_hour={"Front Desk": int(avail_fd), "Nurse": int(avail_nu),
