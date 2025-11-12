@@ -1055,11 +1055,27 @@ if st.session_state.wizard_step == 1:
             with cB3:
                 ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank")
 
-# Validate rankings
-ranks = [ee_rank, dp_rank, ra_rank]
-if len(set(ranks)) != 3:
-    st.error("Each dimension must have a unique rank (1, 2, or 3)")
-else:
+        # Validate rankings
+        ranks = [ee_rank, dp_rank, ra_rank]
+        if len(set(ranks)) != 3:
+            st.error("⚠️ Each dimension must have a unique rank (1, 2, or 3). Please assign each rank exactly once.")
+        else:
+            # Show the weights that will be applied
+            rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
+            st.success(f"✓ Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
+
+        with st.expander("Additional (optional) – service times, loops & interaction matrix", expanded=False):
+            st.markdown("#### Service times (mean minutes)")
+            cS1, cS2 = st.columns(2)
+            with cS1:
+                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off)
+                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off)
+                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off)
+            with cS2:
+                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off)
+                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
+                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
+
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
