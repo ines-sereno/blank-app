@@ -1271,164 +1271,182 @@ if st.session_state.wizard_step == 1:
                 p_protocol=p_protocol, route_matrix=route
             )
             st.session_state.design_saved = True
-            st.success("Configuration saved.")
+            st.success("✅ Configuration saved successfully!")
 
+    # Show configuration preview and run button after save
     if st.session_state.design_saved:
-        st.button("Continue →", on_click=go_next, type="primary")
-    else:
-        st.info("Click **Save** to enable Continue.")
-        st.button("Continue →", disabled=True)
+        st.markdown("---")
+        st.markdown("### 🎯 Configuration Summary")
+        p = st.session_state["design"]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Simulation Days", p["sim_minutes"] // DAY_MIN)
+            st.metric("Hours/Day", p["open_minutes"] // 60)
+        with col2:
+            st.metric("Random Seed", p["seed"])
+            st.metric("Replications", p["num_replications"])
+        with col3:
+            active_count = sum(1 for cap in [p["frontdesk_cap"], p["nurse_cap"], p["provider_cap"], p["backoffice_cap"]] if cap > 0)
+            st.metric("Active Roles", f"{active_count}/4")
+            st.metric("Total Staff", p["frontdesk_cap"] + p["nurse_cap"] + p["provider_cap"] + p["backoffice_cap"])
+        
+        st.markdown("---")
+        
+        # Process preview
+        dot = build_process_graph(p)
+        with st.expander("📋 Process Flow Preview", expanded=False):
+            st.caption("Visual representation of your clinic configuration")
+            st.graphviz_chart(dot, use_container_width=False)
+        
+        # Run simulation button
+        if st.button("▶️ Run Simulation", type="primary", use_container_width=True):
+            st.session_state.wizard_step = 2
+            st.rerun()
         
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
-    st.subheader("Step 2 – Run & Results")
+    st.markdown("## ⚙️ Running Simulation...")
     st.button("← Back to Design", on_click=go_back)
 
     if not st.session_state["design"]:
-        st.info("Use **Continue** on Step 1 first.")
-        st.stop()
+        st.info("Use **Save** on Step 1 first.")
+        st.session_state.wizard_step = 1
+        st.rerun()
 
-    # Extract seed and num_replications from design
-    seed = st.session_state["design"].get("seed", 42)
-    num_replications = st.session_state["design"].get("num_replications", 30)
+    p = st.session_state["design"]
+    seed = p.get("seed", 42)
+    num_replications = p.get("num_replications", 30)
     
-    st.info(f"🎲 Running with seed={seed}, replications={num_replications}")
+    # Show what's being run
+    st.info(f"🎲 Seed: {seed} | 🔄 Replications: {num_replications} | 📅 Days: {p['sim_minutes'] // DAY_MIN}")
+    
+    # Run simulation automatically
+    active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
+                        ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
+    active_roles = [r for r, cap in active_roles_caps if cap > 0]
+    
+    all_metrics = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for rep in range(num_replications):
+        status_text.text(f"Running replication {rep + 1} of {num_replications}...")
+        metrics = run_single_replication(p, seed + rep)
+        all_metrics.append(metrics)
+        progress_bar.progress((rep + 1) / num_replications)
+    
+    status_text.text(f"✅ Completed {num_replications} replications!")
+    progress_bar.empty()
+    
+    agg_results = aggregate_replications(p, all_metrics, active_roles)
+    
+    flow_df = agg_results["flow_df"]
+    time_at_role_df = agg_results["time_at_role_df"]
+    queue_df = agg_results["queue_df"]
+    rework_overview_df = agg_results["rework_overview_df"]
+    loop_origin_df = agg_results["loop_origin_df"]
+    throughput_full_df = agg_results["throughput_full_df"]
+    util_df = agg_results["util_df"]
+    summary_df = agg_results["summary_df"]
+    
+    # Calculate burnout
+    burnout_data = calculate_burnout(all_metrics, p, active_roles)
+    
+    all_events_data = []
+    for rep_idx, metrics in enumerate(all_metrics):
+        for t, name, step, note, arr in metrics.events:
+            all_events_data.append({
+                "Replication": rep_idx + 1, "Time (min)": float(t), "Task": name,
+                "Step": step, "Step label": pretty_step(step), "Note": note,
+                "Arrival time (min)": (float(arr) if arr is not None else None),
+                "Day": int(t // DAY_MIN)
+            })
+    events_df = pd.DataFrame(all_events_data)
+    
+    # ── RENDER ─────────────────────────────────────────────────────────
+    st.markdown(f"## 📊 Simulation Results")
+    st.caption(f"Averaged over {num_replications} independent replications")
+    st.markdown("---")
+    
+    # ============================================================
+    # SECTION 1: SYSTEM PERFORMANCE
+    # ============================================================
+    st.markdown("## 📈 System Performance")
+    st.caption("How well is the clinic handling incoming work?")
+    
+    # Graphs side by side
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Daily Throughput Trend")
+        fig_throughput = plot_daily_throughput(all_metrics, p)
+        st.pyplot(fig_throughput, use_container_width=False)
+        plt.close(fig_throughput)
+    
+    with col2:
+        st.markdown("### Queue Length Over Time")
+        fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
+        st.pyplot(fig_queue, use_container_width=False)
+        plt.close(fig_queue)
+    
+    # Help text below graphs
+    col1, col2 = st.columns(2)
+    with col1:
+        help_icon("**Calculation:** Counts tasks completed each day across replications. "
+                 "Line shows mean, shaded area is ±1 SD. **Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
+    with col2:
+        help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
+                 "**Interpretation:** Persistent high queues = bottlenecks. Growing queues = can't keep up.")
+    
+    st.markdown("---")
+    
+    # ============================================================
+    # SECTION 2: BURNOUT & WORKLOAD INDICATORS
+    # ============================================================
+    st.markdown("## 🔥 Burnout & Workload Indicators")
+    st.caption("Which roles are at risk of being overwhelmed?")
+    
+    # Top row: Burnout Index | Utilization Heatmap
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Burnout Index (MBI-based)")
+        fig_burnout = plot_burnout_scores(burnout_data, active_roles)
+        st.pyplot(fig_burnout, use_container_width=False)
+        plt.close(fig_burnout)
+        
+        # Rework Impact below Burnout Index
+        st.markdown("### Rework Impact")
+        fig_rework = plot_rework_impact(all_metrics, p, active_roles)
+        st.pyplot(fig_rework, use_container_width=False)
+        plt.close(fig_rework)
+    
+    with col2:
+        st.markdown("### Utilization Heatmap")
+        fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
+        st.pyplot(fig_heatmap, use_container_width=False)
+        plt.close(fig_heatmap)
+    
+    # Help text below
+    col1, col2 = st.columns(2)
+    with col1:
+        help_icon("**Burnout Calculation (Simplified):**\n"
+                "• **Emotional Exhaustion (EE)** = 100 × (0.70×Utilization + 0.30×AvailabilityStress)\n"
+                "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct + 0.40×QueuePressure)\n"
+                "• **Reduced Accomplishment (RA)** = 100 × (0.70×WaitInefficiency + 0.30×Incompletion)\n\n"
+                "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
+                "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
+        help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
+                 "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
+    with col2:
+        help_icon("**Calculation:** % of available time each role spends working per hour (service time ÷ capacity × available minutes). "
+                 "**Interpretation:** Red (>80%) = high burnout risk. Yellow (50-80%) = moderate. Green (<50%) = underutilized.")
+    
+    st.markdown("---")
 
-    dot = build_process_graph(st.session_state["design"])
-    with st.expander("📋 Process Preview (click to expand)", expanded=False):
-        st.caption("Live view of staffing, routing, nurse protocol, and loop settings.")
-        st.graphviz_chart(dot, use_container_width=False)
-
-    run = st.button("Run Simulation", type="primary")
-
-    if run:
-        st.session_state.ran = True
-        p = st.session_state["design"]
-        
-        active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
-                            ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
-        active_roles = [r for r, cap in active_roles_caps if cap > 0]
-        
-        all_metrics = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for rep in range(num_replications):
-            status_text.text(f"Running replication {rep + 1} of {num_replications}...")
-            metrics = run_single_replication(p, seed + rep)
-            all_metrics.append(metrics)
-            progress_bar.progress((rep + 1) / num_replications)
-        
-        status_text.text(f"Completed {num_replications} replications!")
-        
-        agg_results = aggregate_replications(p, all_metrics, active_roles)
-        
-        flow_df = agg_results["flow_df"]
-        time_at_role_df = agg_results["time_at_role_df"]
-        queue_df = agg_results["queue_df"]
-        rework_overview_df = agg_results["rework_overview_df"]
-        loop_origin_df = agg_results["loop_origin_df"]
-        throughput_full_df = agg_results["throughput_full_df"]
-        util_df = agg_results["util_df"]
-        summary_df = agg_results["summary_df"]
-        
-        # Calculate burnout
-        burnout_data = calculate_burnout(all_metrics, p, active_roles)
-        
-        all_events_data = []
-        for rep_idx, metrics in enumerate(all_metrics):
-            for t, name, step, note, arr in metrics.events:
-                all_events_data.append({
-                    "Replication": rep_idx + 1, "Time (min)": float(t), "Task": name,
-                    "Step": step, "Step label": pretty_step(step), "Note": note,
-                    "Arrival time (min)": (float(arr) if arr is not None else None),
-                    "Day": int(t // DAY_MIN)
-                })
-        events_df = pd.DataFrame(all_events_data)
-        
-        # ── RENDER ─────────────────────────────────────────────────────────
-        st.markdown(f"## 📊 Simulation Results")
-        st.caption(f"Averaged over {num_replications} independent replications")
-        st.markdown("---")
-        
-        # ============================================================
-        # SECTION 1: SYSTEM PERFORMANCE
-        # ============================================================
-        st.markdown("## 📈 System Performance")
-        st.caption("How well is the clinic handling incoming work?")
-        
-        # Graphs side by side
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### Daily Throughput Trend")
-            fig_throughput = plot_daily_throughput(all_metrics, p)
-            st.pyplot(fig_throughput, use_container_width=False)
-            plt.close(fig_throughput)
-        
-        with col2:
-            st.markdown("### Queue Length Over Time")
-            fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
-            st.pyplot(fig_queue, use_container_width=False)
-            plt.close(fig_queue)
-        
-        # Help text below graphs
-        col1, col2 = st.columns(2)
-        with col1:
-            help_icon("**Calculation:** Counts tasks completed each day across replications. "
-                     "Line shows mean, shaded area is ±1 SD. **Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
-        with col2:
-            help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
-                     "**Interpretation:** Persistent high queues = bottlenecks. Growing queues = can't keep up.")
-        
-        st.markdown("---")
-        
-        # ============================================================
-        # SECTION 2: BURNOUT & WORKLOAD INDICATORS
-        # ============================================================
-        st.markdown("## 🔥 Burnout & Workload Indicators")
-        st.caption("Which roles are at risk of being overwhelmed?")
-        
-        # Top row: Burnout Index | Utilization Heatmap
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### Burnout Index (MBI-based)")
-            fig_burnout = plot_burnout_scores(burnout_data, active_roles)
-            st.pyplot(fig_burnout, use_container_width=False)
-            plt.close(fig_burnout)
-            
-            # Rework Impact below Burnout Index
-            st.markdown("### Rework Impact")
-            fig_rework = plot_rework_impact(all_metrics, p, active_roles)
-            st.pyplot(fig_rework, use_container_width=False)
-            plt.close(fig_rework)
-        
-        with col2:
-            st.markdown("### Utilization Heatmap")
-            fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
-            st.pyplot(fig_heatmap, use_container_width=False)
-            plt.close(fig_heatmap)
-        
-        # Help text below
-        col1, col2 = st.columns(2)
-        with col1:
-            help_icon("**Burnout Calculation (Simplified):**\n"
-                    "• **Emotional Exhaustion (EE)** = 100 × (0.70×Utilization + 0.30×AvailabilityStress)\n"
-                    "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct + 0.40×QueuePressure)\n"
-                    "• **Reduced Accomplishment (RA)** = 100 × (0.70×WaitInefficiency + 0.30×Incompletion)\n\n"
-                    "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
-                    "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
-            help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
-                     "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
-        with col2:
-            help_icon("**Calculation:** % of available time each role spends working per hour (service time ÷ capacity × available minutes). "
-                     "**Interpretation:** Red (>80%) = high burnout risk. Yellow (50-80%) = moderate. Green (<50%) = underutilized.")
-        
-        st.markdown("---")
-
-        st.markdown("## 💾 Download Data")
-        with st.spinner("Producing run log for download..."):
-            runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
-        
-        st.download_button("Download Run Log (Excel)", data=runlog_pkg["bytes"],
-                          file_name=f"RunLog_{num_replications}reps.{runlog_pkg['ext']}",
-                          mime=runlog_pkg["mime"], type="primary")
+    st.markdown("## 💾 Download Data")
+    with st.spinner("Producing run log for download..."):
+        runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
+    
+    st.download_button("Download Run Log (Excel)", data=runlog_pkg["bytes"],
+                      file_name=f"RunLog_{num_replications}reps.{runlog_pkg['ext']}",
+                      mime=runlog_pkg["mime"], type="primary")
