@@ -1019,8 +1019,22 @@ if st.session_state.wizard_step == 1:
                            help="Number of clinic operating days to simulate. More days = more stable results but longer runtime")
         open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
                               help="Number of hours the clinic is open each day (e.g., 8am-6pm = 10 hours)")
-        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05,
-                     help="Coefficient of variation for task completion times. Higher = more variability in how long tasks take (0 = everyone works at same speed, 0.8 = high variability)")
+        cv_speed_label = st.select_slider(
+            "Task speed variability",
+            options=["Very Low", "Low", "Moderate", "High", "Very High"],
+            value=_init_ss("cv_speed_label", "Moderate"),
+            help="How much variation is there in how long tasks take? Very Low = everyone works at nearly the same speed. Very High = some tasks finish much faster/slower than average")
+
+        # Map Likert scale to CV values
+        cv_speed_map = {
+            "Very Low": 0.1,
+            "Low": 0.2,
+            "Moderate": 0.3,
+            "High": 0.5,
+            "Very High": 0.7}
+
+        cv_speed = cv_speed_map[cv_speed_label]
+        st.caption(f"(Coefficient of Variation: {cv_speed})")
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
