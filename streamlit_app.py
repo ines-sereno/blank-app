@@ -428,12 +428,15 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
 # =============================
 def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[str]) -> Dict:
     """
-    Simplified, non-overlapping burnout model:
-      - EE: Utilization + AvailabilityStress
-      - DP: ReworkPct + QueuePressure
-      - RA: WaitInefficiency + Incompletion
-    Each subscale maps to 0–100, then Overall = 0.40*EE + 0.30*DP + 0.30*RA.
+    Simplified, non-overlapping burnout model with user-defined priority weights.
     """
+    # Convert rankings to weights (1st=0.5, 2nd=0.3, 3rd=0.2)
+    rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
+    burnout_weights = p.get("burnout_weights", {"ee_rank": 1, "dp_rank": 2, "ra_rank": 3})
+    w_ee = rank_to_weight[burnout_weights["ee_rank"]]
+    w_dp = rank_to_weight[burnout_weights["dp_rank"]]
+    w_ra = rank_to_weight[burnout_weights["ra_rank"]]
+    
     burnout_scores = {}
 
     open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
@@ -521,7 +524,7 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
         DP = 100.0 * (0.60 * avg_rework + 0.40 * avg_queue_pressure)               # quality friction
         RA = 100.0 * (0.70 * avg_wait_ineff + 0.30 * avg_incompletion)             # outcomes + delays
 
-        burnout_score = 0.40 * EE + 0.30 * DP + 0.30 * RA
+        burnout_score = w_ee * EE + w_dp * DP + w_ra * RA
 
         burnout_scores[role] = {
             "overall": float(burnout_score),
@@ -1042,6 +1045,21 @@ if st.session_state.wizard_step == 1:
                 svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
 
+            st.markdown("### Burnout Priority Weights")
+            st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
+            cB1, cB2, cB3 = st.columns(3)
+            with cB1:
+                ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank")
+            with cB2:
+                dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank")
+            with cB3:
+                ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank")
+
+# Validate rankings
+ranks = [ee_rank, dp_rank, ra_rank]
+if len(set(ranks)) != 3:
+    st.error("Each dimension must have a unique rank (1, 2, or 3)")
+
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
@@ -1114,6 +1132,7 @@ if st.session_state.wizard_step == 1:
                           "Provider": "exponential", "Back Office": "exponential"},
                 cv_speed=cv_speed,
                 emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Provider": 0.5, "Back Office": 0.5},
+                burnout_weights={"ee_rank": ee_rank, "dp_rank": dp_rank, "ra_rank": ra_rank},
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
                 p_provider_insuff=p_provider_insuff, max_provider_loops=max_provider_loops, provider_loop_delay=provider_loop_delay,
