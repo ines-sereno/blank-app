@@ -1364,7 +1364,7 @@ elif st.session_state.wizard_step == 2:
     # Graphs side by side
     col1, col2 = st.columns(2)
     with col1:
-        fig_throughput = plot_daily_throughput(all_metrics, p)
+        fig_throughput = plot_daily_throughput(all_metrics, p, active_roles)
         st.pyplot(fig_throughput, use_container_width=False)
         plt.close(fig_throughput)
     
