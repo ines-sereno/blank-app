@@ -529,56 +529,47 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
-    open_minutes = p["open_minutes"]
+    num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    
+    # Calculate end-of-day queue lengths for each role
+    end_of_day_queues = {role: [] for role in active_roles}
     
     for role in active_roles:
-        all_queues = []
-        all_times = []
-        
+        daily_queues = []
         for metrics in all_metrics:
-            # Filter to only include open hours
-            open_queue = []
-            open_time = []
-            cumulative_open_time = 0
-            
-            for i, t in enumerate(metrics.time_stamps):
-                if is_open(t, open_minutes):
-                    open_queue.append(metrics.queues[role][i])
-                    open_time.append(cumulative_open_time / open_minutes)  # Convert to "operational days"
-                    cumulative_open_time += 1
-            
-            all_queues.append(open_queue)
-            all_times.append(open_time)
+            role_daily = []
+            for day in range(num_days):
+                # Find the queue length at the end of this operational day
+                end_of_day_time = (day + 1) * DAY_MIN - 1  # Last minute of the day
+                # Find closest timestamp
+                closest_idx = min(range(len(metrics.time_stamps)), 
+                                key=lambda i: abs(metrics.time_stamps[i] - end_of_day_time))
+                role_daily.append(metrics.queues[role][closest_idx])
+            daily_queues.append(role_daily)
         
-        # Use the longest replication's time series
-        max_len = max(len(q) for q in all_queues)
-        
-        # Pad shorter replications
-        for i in range(len(all_queues)):
-            if len(all_queues[i]) < max_len:
-                pad_len = max_len - len(all_queues[i])
-                all_queues[i] = all_queues[i] + [all_queues[i][-1]] * pad_len if len(all_queues[i]) > 0 else [0] * max_len
-                if len(all_times[i]) > 0:
-                    last_time = all_times[i][-1]
-                    all_times[i] = all_times[i] + [last_time + j/open_minutes for j in range(1, pad_len + 1)]
-                else:
-                    all_times[i] = [j/open_minutes for j in range(max_len)]
-        
-        queue_array = np.array(all_queues)
-        mean_queue = np.mean(queue_array, axis=0)
-        std_queue = np.std(queue_array, axis=0)
-        time_days = np.array(all_times[0])  # Use first replication's time axis
-        
-        color = colors.get(role, '#333333')
-        ax.plot(time_days, mean_queue, label=role, color=color, linewidth=1.5)
-        lower_bound = np.maximum(mean_queue - std_queue, 0)
-        ax.fill_between(time_days, lower_bound, mean_queue + std_queue, alpha=0.2, color=color)
+        # Average across replications
+        daily_array = np.array(daily_queues)
+        mean_daily = np.mean(daily_array, axis=0)
+        std_daily = np.std(daily_array, axis=0)
+        end_of_day_queues[role] = (mean_daily, std_daily)
     
-    ax.set_xlabel('Operational Days', fontsize=10)
-    ax.set_ylabel('Queue Length', fontsize=10)
-    ax.set_title('Queue Length Over Time (open hours only)', fontsize=11, fontweight='bold')
+    # Create grouped bar chart
+    x = np.arange(num_days)
+    width = 0.8 / len(active_roles)
+    
+    for i, role in enumerate(active_roles):
+        mean_daily, std_daily = end_of_day_queues[role]
+        offset = (i - len(active_roles)/2 + 0.5) * width
+        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
+               alpha=0.8, yerr=std_daily, capsize=3)
+    
+    ax.set_xlabel('Operational Day', fontsize=10)
+    ax.set_ylabel('Queue Length (end of day)', fontsize=10)
+    ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
     ax.legend(loc='best', fontsize=8)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, axis='y')
     ax.set_ylim(bottom=0)
     plt.tight_layout()
     return fig
