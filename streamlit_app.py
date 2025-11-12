@@ -993,13 +993,17 @@ if st.session_state.wizard_step == 1:
     st.markdown("### 👥 Staffing (on duty)")
     cStaff1, cStaff2, cStaff3, cStaff4 = st.columns(4)
     with cStaff1:
-        st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d")
+    st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
+                                               help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
     with cStaff2:
-        st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d")
+    st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
+                                                  help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
     with cStaff3:
-        st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d")
+    st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d",
+                                                     help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
     with cStaff4:
-        st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d")
+    st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
+                                               help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
 
     fd_off = (st.session_state.fd_cap == 0)
     nu_off = (st.session_state.nurse_cap == 0)
@@ -1011,41 +1015,55 @@ if st.session_state.wizard_step == 1:
 
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
-        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d")
-        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d")
-        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05)
+        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
+                           help="Number of clinic operating days to simulate. More days = more stable results but longer runtime")
+        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
+                              help="Number of hours the clinic is open each day (e.g., 8am-6pm = 10 hours)")
+        cv_speed = st.slider("Task speed variability (CV)", 0.0, 0.8, _init_ss("cv_speed", 0.25), 0.05,
+                     help="Coefficient of variation for task completion times. Higher = more variability in how long tasks take (0 = everyone works at same speed, 0.8 = high variability)")
 
         st.markdown("### Arrivals per hour at each role")
         cA1, cA2, cA3, cA4 = st.columns(4)
         with cA1:
-            arr_fd = st.number_input("→ Front Desk", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=fd_off)
+            arr_fd = st.number_input("→ Front Desk", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=fd_off,
+                             help="Average number of tasks arriving at Front Desk per hour (e.g., check-ins, phone calls)")
         with cA2:
-            arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off)
+            arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off,
+                             help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
         with cA3:
-            arr_pr = st.number_input("→ Provider", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off)
+            arr_pr = st.number_input("→ Provider", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off,
+                             help="Average number of tasks arriving directly at Providers per hour (e.g., direct consultations)")
         with cA4:
-            arr_bo = st.number_input("→ Back Office", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=bo_off)
+            arr_bo = st.number_input("→ Back Office", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=bo_off,
+                             help="Average number of tasks arriving directly at Back Office per hour (e.g., insurance claims, billing questions)")
 
         st.markdown("### Role availability (minutes per hour)")
         cAv1, cAv2, cAv3, cAv4 = st.columns(4)
         with cAv1:
-            avail_fd = st.number_input("Front Desk", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=fd_off)
+            avail_fd = st.number_input("Front Desk", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=fd_off,
+                               help="Minutes per hour that front desk staff are available for work (60 = always available, 45 = 75% available due to breaks, meetings, etc.)")
         with cAv2:
-            avail_nu = st.number_input("Nurse / MAs", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=nu_off)
+            avail_nu = st.number_input("Nurse / MAs", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=nu_off,
+                               help="Minutes per hour that nurses are available for work (lower values simulate interruptions, charting time, etc.)")
         with cAv3:
-            avail_pr = st.number_input("Providers", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=pr_off)
+            avail_pr = st.number_input("Providers", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=pr_off,
+                               help="Minutes per hour that providers are available for patient-facing work (accounts for charting, calls, etc.)")
         with cAv4:
-            avail_bo = st.number_input("Back Office", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=bo_off)
+            avail_bo = st.number_input("Back Office", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=bo_off,
+                               help="Minutes per hour that back office staff are available for work")
 
         st.markdown("### Burnout Priority Weights")
         st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
         cB1, cB2, cB3 = st.columns(3)
         with cB1:
-            ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank")
+            ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank",
+                          help="Rank importance of Emotional Exhaustion (workload intensity, time pressure, availability constraints)")
         with cB2:
-            dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank")
+            dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank",
+                          help="Rank importance of Depersonalization (rework, quality issues, queue pressure)")
         with cB3:
-            ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank")
+            ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank",
+                          help="Rank importance of Reduced Accomplishment (delays, incomplete work, inefficiency)")
 
         # Validate rankings
         ranks = [ee_rank, dp_rank, ra_rank]
@@ -1060,30 +1078,46 @@ if st.session_state.wizard_step == 1:
             st.markdown("#### Service times (mean minutes)")
             cS1, cS2 = st.columns(2)
             with cS1:
-                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off)
-                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off)
-                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off)
+                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off,
+                              help="Average time (minutes) for front desk to complete a task")
+                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off,
+                                    help="Average time (minutes) when nurse resolves task via protocol without provider")
+                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off,
+                         help="Average time (minutes) for nurse tasks that don't use protocol")
             with cS2:
-                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off)
-                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
-                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
-
+                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off,
+                            help="Average time (minutes) for provider to see a patient or complete a task")
+                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off,
+                               help="Average time (minutes) for back office to complete a task (billing, insurance, etc.)")
+                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off,
+                          help="Probability that a nurse can resolve a task using standing protocols without provider involvement")
+   
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
-                p_fd_insuff = st.slider("Front Desk: probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=fd_off)
-                max_fd_loops = st.number_input("Front Desk: max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=fd_off)
-                fd_loop_delay = st.slider("Front Desk: rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=fd_off)
-                p_nurse_insuff = st.slider("Nurse: probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=nu_off)
-                max_nurse_loops = st.number_input("Nurse: max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=nu_off)
+                p_fd_insuff = st.slider("Front Desk: probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=fd_off,
+                            help="Probability that front desk encounters missing information requiring rework")
+                max_fd_loops = st.number_input("Front Desk: max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=fd_off,
+                                   help="Maximum number of rework loops before giving up")
+                fd_loop_delay = st.slider("Front Desk: rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=fd_off,
+                              help="Time delay (minutes) before starting rework loop")
+                p_nurse_insuff = st.slider("Nurse: probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=nu_off,
+                               help="Probability that nurse needs to send task back to front desk for more info")
+                max_nurse_loops = st.number_input("Nurse: max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=nu_off,
+                                      help="Maximum number of nurse rework loops before giving up")
             with cL2:
-                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off)
-                max_provider_loops = st.number_input("Provider: max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off)
-                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off)
-                p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off)
-                max_backoffice_loops = st.number_input("Back Office: max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=bo_off)
-                backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off)
-
+                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off,
+                                  help="Probability that provider task needs rework (unclear orders, missing info, etc.)")
+                max_provider_loops = st.number_input("Provider: max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off,
+                                        help="Maximum number of provider rework loops before giving up")
+                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off,
+                                    help="Time delay (minutes) before provider rework")
+                p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off,
+                                    help="Probability that back office task needs rework (billing errors, missing documentation)")
+                max_backoffice_loops = st.number_input("Back Office: max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=bo_off,
+                                          help="Maximum number of back office rework loops before giving up")
+                backoffice_loop_delay = st.slider("Back Office: rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=bo_off,
+                                      help="Time delay (minutes) before back office rework")
             st.markdown("#### Interaction matrix — Routing Probabilities")
             st.caption("Self-routing is disabled. You cannot route to roles with 0 capacity.")
 
