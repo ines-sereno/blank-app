@@ -527,40 +527,56 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
 
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
-    max_len = max(len(m.time_stamps) for m in all_metrics)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
-    # Add shading for closed hours
-    open_hours = p["open_minutes"] / 60.0
-    num_days = int(np.ceil(max_len / DAY_MIN))
-    for day in range(num_days):
-        # Shade the closed period (after clinic closes until next morning)
-        close_time = day + (open_hours / 24.0)
-        open_time = day + 1
-        ax.axvspan(close_time, open_time, alpha=0.1, color='gray', zorder=0)
+    open_minutes = p["open_minutes"]
     
     for role in active_roles:
         all_queues = []
+        all_times = []
+        
         for metrics in all_metrics:
-            q = metrics.queues[role]
-            if len(q) < max_len:
-                q = q + [q[-1]] * (max_len - len(q)) if len(q) > 0 else [0] * max_len
-            all_queues.append(q[:max_len])
+            # Filter to only include open hours
+            open_queue = []
+            open_time = []
+            cumulative_open_time = 0
+            
+            for i, t in enumerate(metrics.time_stamps):
+                if is_open(t, open_minutes):
+                    open_queue.append(metrics.queues[role][i])
+                    open_time.append(cumulative_open_time / open_minutes)  # Convert to "operational days"
+                    cumulative_open_time += 1
+            
+            all_queues.append(open_queue)
+            all_times.append(open_time)
+        
+        # Use the longest replication's time series
+        max_len = max(len(q) for q in all_queues)
+        
+        # Pad shorter replications
+        for i in range(len(all_queues)):
+            if len(all_queues[i]) < max_len:
+                pad_len = max_len - len(all_queues[i])
+                all_queues[i] = all_queues[i] + [all_queues[i][-1]] * pad_len if len(all_queues[i]) > 0 else [0] * max_len
+                if len(all_times[i]) > 0:
+                    last_time = all_times[i][-1]
+                    all_times[i] = all_times[i] + [last_time + j/open_minutes for j in range(1, pad_len + 1)]
+                else:
+                    all_times[i] = [j/open_minutes for j in range(max_len)]
         
         queue_array = np.array(all_queues)
         mean_queue = np.mean(queue_array, axis=0)
         std_queue = np.std(queue_array, axis=0)
-        time_days = np.array(all_metrics[0].time_stamps[:max_len]) / DAY_MIN
+        time_days = np.array(all_times[0])  # Use first replication's time axis
         
         color = colors.get(role, '#333333')
         ax.plot(time_days, mean_queue, label=role, color=color, linewidth=1.5)
-        # Make sure shaded area doesn't go below 0
         lower_bound = np.maximum(mean_queue - std_queue, 0)
         ax.fill_between(time_days, lower_bound, mean_queue + std_queue, alpha=0.2, color=color)
     
-    ax.set_xlabel('Time (days)', fontsize=10)
+    ax.set_xlabel('Operational Days', fontsize=10)
     ax.set_ylabel('Queue Length', fontsize=10)
-    ax.set_title('Queue Length Over Time (gray = closed hours)', fontsize=11, fontweight='bold')
+    ax.set_title('Queue Length Over Time (open hours only)', fontsize=11, fontweight='bold')
     ax.legend(loc='best', fontsize=8)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(bottom=0)
@@ -621,7 +637,7 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
         daily = []
         for d in range(num_days):
             start_t = d * DAY_MIN
-            end_t = (d + 1) * DAY_MIN
+            end_t = start_t + p["open_minutes"]  # Only count completions during open hours
             completed = sum(1 for ct in comp_times.values() if start_t <= ct < end_t)
             daily.append(completed)
         daily_completions.append(daily)
@@ -632,14 +648,15 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
     days = np.arange(1, num_days + 1)
     
     ax.plot(days, mean_daily, marker='o', linewidth=1.5, markersize=6, color='#3498db', label='Mean')
-    ax.fill_between(days, mean_daily - std_daily, mean_daily + std_daily, alpha=0.3, color='#3498db', label='± 1 SD')
+    ax.fill_between(days, np.maximum(mean_daily - std_daily, 0), mean_daily + std_daily, alpha=0.3, color='#3498db', label='± 1 SD')
     
-    ax.set_xlabel('Day', fontsize=10)
+    ax.set_xlabel('Operational Day', fontsize=10)
     ax.set_ylabel('Tasks Completed', fontsize=10)
-    ax.set_title('Daily Throughput', fontsize=11, fontweight='bold')
+    ax.set_title('Daily Throughput (during open hours)', fontsize=11, fontweight='bold')
     ax.set_xticks(days)
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
+    ax.set_ylim(bottom=0)
     plt.tight_layout()
     return fig
 
