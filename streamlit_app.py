@@ -1035,7 +1035,6 @@ if st.session_state.wizard_step == 1:
             "Very High": 0.7
         }
         cv_speed = cv_speed_map[cv_speed_label]
-        st.caption(f"(Coefficient of Variation: {cv_speed})")
 
         st.markdown("### Burnout Priority Weights")
         st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
