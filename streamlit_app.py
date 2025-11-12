@@ -634,19 +634,21 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: Lis
     mean_total = np.mean(total_array, axis=0)
     std_total = np.std(total_array, axis=0)
     
-    # Create grouped bar chart with total + by role
+    # Create grouped bar chart by role only
     x = np.arange(num_days)
-    width = 0.15
-    
-    # Plot total
-    ax.bar(x - width*2, mean_total, width, label='Total', color='#333333', 
-           alpha=0.8, yerr=std_total, capsize=3)
+    width = 0.8 / len(active_roles)
     
     # Plot by role
     for i, role in enumerate(active_roles):
         mean_daily, std_daily = role_completions[role]
-        ax.bar(x - width + i*width, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
+        offset = (i - len(active_roles)/2 + 0.5) * width
+        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
                alpha=0.8, yerr=std_daily, capsize=3)
+    
+    # Add total as text labels above the bars
+    for i, (total, std) in enumerate(zip(mean_total, std_total)):
+        ax.text(i, total + std + 10, f'Total: {total:.0f}', 
+                ha='center', va='bottom', fontsize=9, fontweight='bold')
     
     # Add vertical lines to separate days
     for day in range(1, num_days):
@@ -662,7 +664,8 @@ def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: Lis
     ax.set_ylim(bottom=0)
     plt.tight_layout()
     return fig
-    
+
+
 def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
     original_time = {r: [] for r in active_roles}
