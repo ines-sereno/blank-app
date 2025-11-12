@@ -1035,28 +1035,12 @@ if st.session_state.wizard_step == 1:
             "Very High": 0.7
         }
         cv_speed = cv_speed_map[cv_speed_label]
-
-        st.markdown("### Burnout Priority Weights")
-        st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
-        cB1, cB2, cB3 = st.columns(3)
-        with cB1:
-            ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank",
-                                  help="Rank importance of Emotional Exhaustion (workload intensity, time pressure, availability constraints)")
-        with cB2:
-            dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank",
-                                  help="Rank importance of Depersonalization (rework, quality issues, queue pressure)")
-        with cB3:
-            ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank",
-                                  help="Rank importance of Reduced Accomplishment (delays, incomplete work, inefficiency)")
-
-        # Validate rankings
-        ranks = [ee_rank, dp_rank, ra_rank]
-        if len(set(ranks)) != 3:
-            st.error("⚠️ Each dimension must have a unique rank (1, 2, or 3). Please assign each rank exactly once.")
-        else:
-            # Show the weights that will be applied
-            rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
-            st.success(f"✓ Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
+        st.caption(f"(Coefficient of Variation: {cv_speed})")
+        
+        seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
+                               help="Seed for reproducibility. Same seed = same results")
+        num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
+                                          help="Number of independent simulation runs to average over. More replications = more stable results but longer runtime")
 
         st.markdown("### 👥 Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
@@ -1114,6 +1098,30 @@ if st.session_state.wizard_step == 1:
                                            help="Minutes per hour that back office staff are available for work")
 
         with st.expander("⚙️ Advanced Settings – Service times, loops & routing", expanded=False):
+            
+            st.markdown("### Burnout Priority Weights")
+            st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
+            cB1, cB2, cB3 = st.columns(3)
+            with cB1:
+                ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank",
+                                      help="Rank importance of Emotional Exhaustion (workload intensity, time pressure, availability constraints)")
+            with cB2:
+                dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank",
+                                      help="Rank importance of Depersonalization (rework, quality issues, queue pressure)")
+            with cB3:
+                ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank",
+                                      help="Rank importance of Reduced Accomplishment (delays, incomplete work, inefficiency)")
+
+            # Validate rankings
+            ranks = [ee_rank, dp_rank, ra_rank]
+            if len(set(ranks)) != 3:
+                st.error("⚠️ Each dimension must have a unique rank (1, 2, or 3). Please assign each rank exactly once.")
+            else:
+                # Show the weights that will be applied
+                rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
+                st.success(f"✓ Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
+            
+            st.markdown("---")
             
             # Front Desk
             with st.expander("🏢 Front Desk", expanded=False):
@@ -1241,6 +1249,7 @@ if st.session_state.wizard_step == 1:
 
             st.session_state["design"] = dict(
                 sim_minutes=sim_minutes, open_minutes=open_minutes,
+                seed=seed, num_replications=num_replications,
                 frontdesk_cap=fd_cap_form, nurse_cap=nu_cap_form,
                 provider_cap=pr_cap_form, backoffice_cap=bo_cap_form,
                 arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
@@ -1278,14 +1287,6 @@ elif st.session_state.wizard_step == 2:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
 
-    dot = build_process_graph(st.session_state["design"])
-    with st.expander("📋 Process Preview (click to expand)", expanded=False):
-        st.caption("Live view of staffing, routing, nurse protocol, and loop settings.")
-        st.graphviz_chart(dot, use_container_width=False)
-
-    seed = st.number_input("Random seed", 0, 999999, 42, 1, "%d", help="Seed for reproducibility.")
-    num_replications = st.number_input("Number of replications", 1, 1000, 30, 1, "%d", 
-                                       help="Number of independent simulation runs to average over.")
     run = st.button("Run Simulation", type="primary")
 
     if run:
