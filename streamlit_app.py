@@ -1273,33 +1273,8 @@ if st.session_state.wizard_step == 1:
             st.session_state.design_saved = True
             st.success("✅ Configuration saved successfully!")
 
-    # Show configuration preview and run button after save
+    # Show run button after save
     if st.session_state.design_saved:
-        st.markdown("---")
-        st.markdown("### 🎯 Configuration Summary")
-        p = st.session_state["design"]
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Simulation Days", p["sim_minutes"] // DAY_MIN)
-            st.metric("Hours/Day", p["open_minutes"] // 60)
-        with col2:
-            st.metric("Random Seed", p["seed"])
-            st.metric("Replications", p["num_replications"])
-        with col3:
-            active_count = sum(1 for cap in [p["frontdesk_cap"], p["nurse_cap"], p["provider_cap"], p["backoffice_cap"]] if cap > 0)
-            st.metric("Active Roles", f"{active_count}/4")
-            st.metric("Total Staff", p["frontdesk_cap"] + p["nurse_cap"] + p["provider_cap"] + p["backoffice_cap"])
-        
-        st.markdown("---")
-        
-        # Process preview
-        dot = build_process_graph(p)
-        with st.expander("📋 Process Flow Preview", expanded=False):
-            st.caption("Visual representation of your clinic configuration")
-            st.graphviz_chart(dot, use_container_width=False)
-        
-        # Run simulation button
         if st.button("▶️ Run Simulation", type="primary", use_container_width=True):
             st.session_state.wizard_step = 2
             st.rerun()
