@@ -1025,7 +1025,8 @@ if st.session_state.wizard_step == 1:
             value=_init_ss("cv_speed_label", "Moderate"),
             help="How much variation is there in how long tasks take? Very Low = everyone works at nearly the same speed. Very High = some tasks finish much faster/slower than average"
         )
-        
+        cv_speed = cv_speed_map[cv_speed_label]
+
         # Map Likert scale to CV values
         cv_speed_map = {
             "Very Low": 0.1,
