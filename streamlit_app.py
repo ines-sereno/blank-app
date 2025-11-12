@@ -1034,8 +1034,6 @@ if st.session_state.wizard_step == 1:
             "High": 0.5,
             "Very High": 0.7
         }
-        cv_speed = cv_speed_map[cv_speed_label]
-        st.caption(f"(Coefficient of Variation: {cv_speed})")
         
         seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
                                help="Seed for reproducibility. Same seed = same results")
