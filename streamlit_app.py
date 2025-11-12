@@ -1045,15 +1045,15 @@ if st.session_state.wizard_step == 1:
                 svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
                 p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
 
-            st.markdown("### Burnout Priority Weights")
-            st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
-            cB1, cB2, cB3 = st.columns(3)
-            with cB1:
-                ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank")
-            with cB2:
-                dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank")
-            with cB3:
-                ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank")
+st.markdown("### Burnout Priority Weights")
+        st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
+        cB1, cB2, cB3 = st.columns(3)
+        with cB1:
+            ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank")
+        with cB2:
+            dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank")
+        with cB3:
+            ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank")
 
         # Validate rankings
         ranks = [ee_rank, dp_rank, ra_rank]
@@ -1119,7 +1119,7 @@ if st.session_state.wizard_step == 1:
             route["Provider"] = route_row_ui("Provider", {"Back Office": 0.30, DONE: 0.70}, disabled_source=pr_off)
             route["Back Office"] = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, disabled_source=bo_off)
 
-        saved = st.form_submit_button("Save", width="stretch")
+        saved = st.form_submit_button("Save", type="primary")
 
         if saved:
             open_minutes = int(open_hours * MIN_PER_HOUR)
@@ -1159,11 +1159,12 @@ if st.session_state.wizard_step == 1:
             st.success("Configuration saved.")
 
     if st.session_state.design_saved:
-        st.button("Continue →", on_click=go_next, type="primary", width="stretch")
+        st.button("Continue →", on_click=go_next, type="primary")
     else:
         st.info("Click **Save** to enable Continue.")
-        st.button("Continue →", disabled=True, width="stretch")
+        st.button("Continue →", disabled=True)
 
+ 
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
     st.subheader("Step 2 — Run & Results")
