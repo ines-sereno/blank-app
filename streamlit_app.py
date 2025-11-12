@@ -1018,14 +1018,24 @@ if st.session_state.wizard_step == 1:
                                    help="Number of clinic operating days to simulate. More days = more stable results but longer runtime")
         open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
                                       help="Number of hours the clinic is open each day (e.g., 8am-6pm = 10 hours)")
-        
+
         cv_speed_label = st.select_slider(
             "Task speed variability",
             options=["Very Low", "Low", "Moderate", "High", "Very High"],
             value=_init_ss("cv_speed_label", "Moderate"),
             help="How much variation is there in how long tasks take? Very Low = everyone works at nearly the same speed. Very High = some tasks finish much faster/slower than average"
         )
+        
+        # Map Likert scale to CV values
+        cv_speed_map = {
+            "Very Low": 0.1,
+            "Low": 0.2,
+            "Moderate": 0.3,
+            "High": 0.5,
+            "Very High": 0.7
+        }
         cv_speed = cv_speed_map[cv_speed_label]
+        st.caption(f"(Coefficient of Variation: {cv_speed})")
 
         seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
                                help="Seed for reproducibility. Same seed = same results")
@@ -1034,6 +1044,7 @@ if st.session_state.wizard_step == 1:
 
         st.markdown("### 👥 Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
+        
         
         # Front Desk
         with st.expander("🏢 Front Desk", expanded=True):
@@ -1276,6 +1287,17 @@ elif st.session_state.wizard_step == 2:
     if not st.session_state["design"]:
         st.info("Use **Continue** on Step 1 first.")
         st.stop()
+
+    # Extract seed and num_replications from design
+    seed = st.session_state["design"].get("seed", 42)
+    num_replications = st.session_state["design"].get("num_replications", 30)
+    
+    st.info(f"🎲 Running with seed={seed}, replications={num_replications}")
+
+    dot = build_process_graph(st.session_state["design"])
+    with st.expander("📋 Process Preview (click to expand)", expanded=False):
+        st.caption("Live view of staffing, routing, nurse protocol, and loop settings.")
+        st.graphviz_chart(dot, use_container_width=False)
 
     run = st.button("Run Simulation", type="primary")
 
