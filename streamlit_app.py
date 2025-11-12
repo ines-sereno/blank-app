@@ -585,86 +585,32 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     return fig
 
 def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
-    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
-    # Calculate completions by role and day
-    role_completions = {role: [] for role in active_roles}
-    total_completions = []
+    # Calculate completions by day
+    daily_data = []
     
-    for role in active_roles:
-        daily_by_role = []
-        for metrics in all_metrics:
-            role_daily = []
-            for d in range(num_days):
-                start_t = d * DAY_MIN
-                end_t = start_t + p["open_minutes"]
-                
-                # Count tasks that were completed by this role during open hours
-                completed = 0
-                for task_id, comp_time in metrics.task_completion_time.items():
-                    if start_t <= comp_time < end_t:
-                        # Check if this task went through this role
-                        task_events = [e for e in metrics.events if e[1] == task_id]
-                        role_steps = [e[2] for e in task_events]
-                        if any(role.upper()[:2] in step for step in role_steps):
-                            completed += 1
-                
-                role_daily.append(completed)
-            daily_by_role.append(role_daily)
+    for d in range(num_days):
+        start_t = d * DAY_MIN
+        end_t = start_t + p["open_minutes"]
         
-        # Average across replications
-        daily_array = np.array(daily_by_role)
-        mean_daily = np.mean(daily_array, axis=0)
-        std_daily = np.std(daily_array, axis=0)
-        role_completions[role] = (mean_daily, std_daily)
-    
-    # Calculate total completions
-    for metrics in all_metrics:
-        daily = []
-        for d in range(num_days):
-            start_t = d * DAY_MIN
-            end_t = start_t + p["open_minutes"]
+        # Get completions for this day across all replications
+        day_totals = []
+        for metrics in all_metrics:
             completed = sum(1 for ct in metrics.task_completion_time.values() if start_t <= ct < end_t)
-            daily.append(completed)
-        total_completions.append(daily)
+            day_totals.append(completed)
+        
+        mean_total = np.mean(day_totals)
+        std_total = np.std(day_totals, ddof=1) if len(day_totals) > 1 else 0.0
+        
+        daily_data.append({
+            'Day': f'Day {d+1}',
+            'Tasks Completed': f'{mean_total:.1f} ± {std_total:.1f}'
+        })
     
-    total_array = np.array(total_completions)
-    mean_total = np.mean(total_array, axis=0)
-    std_total = np.std(total_array, axis=0)
+    df = pd.DataFrame(daily_data)
     
-    # Create grouped bar chart by role only
-    x = np.arange(num_days)
-    width = 0.8 / len(active_roles)
-    
-    # Plot by role
-    for i, role in enumerate(active_roles):
-        mean_daily, std_daily = role_completions[role]
-        offset = (i - len(active_roles)/2 + 0.5) * width
-        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
-               alpha=0.8, yerr=std_daily, capsize=3)
-    
-    # Add total as text labels above the bars
-    for i, (total, std) in enumerate(zip(mean_total, std_total)):
-        ax.text(i, total + std + 10, f'Total: {total:.0f}', 
-                ha='center', va='bottom', fontsize=9, fontweight='bold')
-    
-    # Add vertical lines to separate days
-    for day in range(1, num_days):
-        ax.axvline(x=day - 0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
-    
-    ax.set_xlabel('Operational Day', fontsize=10)
-    ax.set_ylabel('Tasks Completed', fontsize=10)
-    ax.set_title('Daily Throughput by Role', fontsize=11, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
-    ax.legend(loc='best', fontsize=8)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_ylim(bottom=0)
-    plt.tight_layout()
-    return fig
-
+    return df
 
 def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
@@ -1367,9 +1313,8 @@ elif st.session_state.wizard_step == 2:
     # Graphs side by side
     col1, col2 = st.columns(2)
     with col1:
-        fig_throughput = plot_daily_throughput(all_metrics, p, active_roles)
-        st.pyplot(fig_throughput, use_container_width=False)
-        plt.close(fig_throughput)
+        throughput_df = plot_daily_throughput(all_metrics, p, active_roles)
+        st.dataframe(throughput_df, use_container_width=True, hide_index=True)
     
     with col2:
         fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
