@@ -541,7 +541,6 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
             role_daily = []
             for day in range(num_days):
                 # Find the queue length at the END of open hours for this day
-                # End of open hours = start of day + open_minutes
                 end_of_open_time = day * DAY_MIN + open_minutes
                 
                 # Find the timestamp closest to this time
@@ -570,22 +569,9 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
         ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
                alpha=0.8, yerr=std_daily, capsize=3)
     
-    ax.set_xlabel('Operational Day', fontsize=10)
-    ax.set_ylabel('Queue Length (end of day)', fontsize=10)
-    ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels([f'{i+1}' for i in range(num_days)])
-    ax.legend(loc='best', fontsize=8)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.set_ylim(bottom=0)
-    plt.tight_layout()
-    return fig
-    
-    for i, role in enumerate(active_roles):
-        mean_daily, std_daily = end_of_day_queues[role]
-        offset = (i - len(active_roles)/2 + 0.5) * width
-        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
-               alpha=0.8, yerr=std_daily, capsize=3)
+    # Add vertical lines to separate days
+    for day in range(1, num_days):
+        ax.axvline(x=day - 0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
     
     ax.set_xlabel('Operational Day', fontsize=10)
     ax.set_ylabel('Queue Length (end of day)', fontsize=10)
@@ -598,6 +584,85 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     plt.tight_layout()
     return fig
 
+def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
+    num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
+    
+    # Calculate completions by role and day
+    role_completions = {role: [] for role in active_roles}
+    total_completions = []
+    
+    for role in active_roles:
+        daily_by_role = []
+        for metrics in all_metrics:
+            role_daily = []
+            for d in range(num_days):
+                start_t = d * DAY_MIN
+                end_t = start_t + p["open_minutes"]
+                
+                # Count tasks that were completed by this role during open hours
+                completed = 0
+                for task_id, comp_time in metrics.task_completion_time.items():
+                    if start_t <= comp_time < end_t:
+                        # Check if this task went through this role
+                        task_events = [e for e in metrics.events if e[1] == task_id]
+                        role_steps = [e[2] for e in task_events]
+                        if any(role.upper()[:2] in step for step in role_steps):
+                            completed += 1
+                
+                role_daily.append(completed)
+            daily_by_role.append(role_daily)
+        
+        # Average across replications
+        daily_array = np.array(daily_by_role)
+        mean_daily = np.mean(daily_array, axis=0)
+        std_daily = np.std(daily_array, axis=0)
+        role_completions[role] = (mean_daily, std_daily)
+    
+    # Calculate total completions
+    for metrics in all_metrics:
+        daily = []
+        for d in range(num_days):
+            start_t = d * DAY_MIN
+            end_t = start_t + p["open_minutes"]
+            completed = sum(1 for ct in metrics.task_completion_time.values() if start_t <= ct < end_t)
+            daily.append(completed)
+        total_completions.append(daily)
+    
+    total_array = np.array(total_completions)
+    mean_total = np.mean(total_array, axis=0)
+    std_total = np.std(total_array, axis=0)
+    
+    # Create grouped bar chart with total + by role
+    x = np.arange(num_days)
+    width = 0.15
+    
+    # Plot total
+    ax.bar(x - width*2, mean_total, width, label='Total', color='#333333', 
+           alpha=0.8, yerr=std_total, capsize=3)
+    
+    # Plot by role
+    for i, role in enumerate(active_roles):
+        mean_daily, std_daily = role_completions[role]
+        ax.bar(x - width + i*width, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
+               alpha=0.8, yerr=std_daily, capsize=3)
+    
+    # Add vertical lines to separate days
+    for day in range(1, num_days):
+        ax.axvline(x=day - 0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
+    
+    ax.set_xlabel('Operational Day', fontsize=10)
+    ax.set_ylabel('Tasks Completed', fontsize=10)
+    ax.set_title('Daily Throughput by Role', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
+    ax.legend(loc='best', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.set_ylim(bottom=0)
+    plt.tight_layout()
+    return fig
+    
 def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
     original_time = {r: [] for r in active_roles}
@@ -639,39 +704,6 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
             pct = 100 * rew / total
             ax.text(i, total + 20, f'{pct:.1f}%', ha='center', va='bottom', fontsize=8)
     
-    plt.tight_layout()
-    return fig
-
-def plot_daily_throughput(all_metrics: List[Metrics], p: Dict):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
-    num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
-    daily_completions = []
-    
-    for metrics in all_metrics:
-        comp_times = metrics.task_completion_time
-        daily = []
-        for d in range(num_days):
-            start_t = d * DAY_MIN
-            end_t = start_t + p["open_minutes"]  # Only count completions during open hours
-            completed = sum(1 for ct in comp_times.values() if start_t <= ct < end_t)
-            daily.append(completed)
-        daily_completions.append(daily)
-    
-    daily_array = np.array(daily_completions)
-    mean_daily = np.mean(daily_array, axis=0)
-    std_daily = np.std(daily_array, axis=0)
-    days = np.arange(1, num_days + 1)
-    
-    ax.plot(days, mean_daily, marker='o', linewidth=1.5, markersize=6, color='#3498db', label='Mean')
-    ax.fill_between(days, np.maximum(mean_daily - std_daily, 0), mean_daily + std_daily, alpha=0.3, color='#3498db', label='± 1 SD')
-    
-    ax.set_xlabel('Operational Day', fontsize=10)
-    ax.set_ylabel('Tasks Completed', fontsize=10)
-    ax.set_title('Daily Throughput (during open hours)', fontsize=11, fontweight='bold')
-    ax.set_xticks(days)
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)
     plt.tight_layout()
     return fig
 
