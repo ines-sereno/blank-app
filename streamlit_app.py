@@ -1059,7 +1059,7 @@ if st.session_state.wizard_step == 1:
 ranks = [ee_rank, dp_rank, ra_rank]
 if len(set(ranks)) != 3:
     st.error("Each dimension must have a unique rank (1, 2, or 3)")
-
+else:
             st.markdown("#### Loops (rework probabilities, caps, and delays)")
             cL1, cL2 = st.columns(2)
             with cL1:
