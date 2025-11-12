@@ -545,13 +545,16 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
         
         color = colors.get(role, '#333333')
         ax.plot(time_days, mean_queue, label=role, color=color, linewidth=1.5)
-        ax.fill_between(time_days, mean_queue - std_queue, mean_queue + std_queue, alpha=0.2, color=color)
+        # Make sure shaded area doesn't go below 0
+        lower_bound = np.maximum(mean_queue - std_queue, 0)
+        ax.fill_between(time_days, lower_bound, mean_queue + std_queue, alpha=0.2, color=color)
     
     ax.set_xlabel('Time (days)', fontsize=10)
     ax.set_ylabel('Queue Length', fontsize=10)
     ax.set_title('Queue Length Over Time', fontsize=11, fontweight='bold')
     ax.legend(loc='best', fontsize=8)
     ax.grid(True, alpha=0.3)
+    ax.set_ylim(bottom=0)  # Force y-axis to start at 0
     plt.tight_layout()
     return fig
 
