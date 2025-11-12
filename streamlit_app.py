@@ -508,7 +508,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
     im = ax.imshow(data, cmap='RdYlGn_r', aspect='auto', vmin=0, vmax=1, interpolation='nearest')
     
     ax.set_xticks(np.arange(hours_in_day))
-    ax.set_xticklabels([f"Hour {h+1}" for h in range(hours_in_day)], fontsize=8)
+    ax.set_xticklabels([f"{h+1}" for h in range(hours_in_day)], fontsize=8)
     ax.set_yticks(np.arange(len(active_roles)))
     ax.set_yticklabels(active_roles, fontsize=9)
     ax.set_xlabel('Hour of Workday', fontsize=10)
@@ -574,7 +574,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     ax.set_ylabel('Queue Length (end of day)', fontsize=10)
     ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
+    ax.set_xticklabels([f'{i+1}' for i in range(num_days)])
     ax.legend(loc='best', fontsize=8)
     ax.grid(True, alpha=0.3, axis='y')
     ax.set_ylim(bottom=0)
@@ -1332,13 +1332,11 @@ elif st.session_state.wizard_step == 2:
     # Graphs side by side
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("### Daily Throughput Trend")
         fig_throughput = plot_daily_throughput(all_metrics, p)
         st.pyplot(fig_throughput, use_container_width=False)
         plt.close(fig_throughput)
     
     with col2:
-        st.markdown("### Queue Length Over Time")
         fig_queue = plot_queue_over_time(all_metrics, p, active_roles)
         st.pyplot(fig_queue, use_container_width=False)
         plt.close(fig_queue)
@@ -1363,19 +1361,16 @@ elif st.session_state.wizard_step == 2:
     # Top row: Burnout Index | Utilization Heatmap
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("### Burnout Index (MBI-based)")
         fig_burnout = plot_burnout_scores(burnout_data, active_roles)
         st.pyplot(fig_burnout, use_container_width=False)
         plt.close(fig_burnout)
         
         # Rework Impact below Burnout Index
-        st.markdown("### Rework Impact")
         fig_rework = plot_rework_impact(all_metrics, p, active_roles)
         st.pyplot(fig_rework, use_container_width=False)
         plt.close(fig_rework)
     
     with col2:
-        st.markdown("### Utilization Heatmap")
         fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
         st.pyplot(fig_heatmap, use_container_width=False)
         plt.close(fig_heatmap)
