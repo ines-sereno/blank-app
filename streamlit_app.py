@@ -317,7 +317,7 @@ def task_lifecycle(env, task_id: str, s: CHCSystem, initial_role: str):
 
     s.m.completed += 1
     s.m.task_completion_time[task_id] = env.now
-    s.m.log(env.now, task_id, "DONE", "Max handoffs reached — forced completion")
+    s.m.log(env.now, task_id, "DONE", "Max handoffs reached – forced completion")
 
 def arrival_process_for_role(env, s: CHCSystem, role_name: str, rate_per_hour: int):
     i = 0
@@ -428,7 +428,11 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
 # =============================
 def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[str]) -> Dict:
     """
-    Simplified, non-overlapping burnout model with user-defined priority weights.
+    Simplified, non-overlapping burnout model with user-defined priority weights:
+      - EE: Utilization + AvailabilityStress
+      - DP: ReworkPct + QueuePressure
+      - RA: WaitInefficiency + Incompletion
+    Each subscale maps to 0–100, then Overall uses user-defined weights.
     """
     # Convert rankings to weights (1st=0.5, 2nd=0.3, 3rd=0.2)
     rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
@@ -1033,19 +1037,7 @@ if st.session_state.wizard_step == 1:
         with cAv4:
             avail_bo = st.number_input("Back Office", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=bo_off)
 
-        with st.expander("Additional (optional) — service times, loops & interaction matrix", expanded=False):
-            st.markdown("#### Service times (mean minutes)")
-            cS1, cS2 = st.columns(2)
-            with cS1:
-                svc_frontdesk = st.slider("Front Desk", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=fd_off)
-                svc_nurse_protocol = st.slider("Nurse Protocol", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=nu_off)
-                svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off)
-            with cS2:
-                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off)
-                svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off)
-                p_protocol = st.slider("Probability Nurse resolves via protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=nu_off)
-
-st.markdown("### Burnout Priority Weights")
+        st.markdown("### Burnout Priority Weights")
         st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
         cB1, cB2, cB3 = st.columns(3)
         with cB1:
@@ -1164,10 +1156,9 @@ st.markdown("### Burnout Priority Weights")
         st.info("Click **Save** to enable Continue.")
         st.button("Continue →", disabled=True)
 
- 
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
-    st.subheader("Step 2 — Run & Results")
+    st.subheader("Step 2 – Run & Results")
     st.button("← Back to Design", on_click=go_back)
 
     if not st.session_state["design"]:
@@ -1182,7 +1173,7 @@ elif st.session_state.wizard_step == 2:
     seed = st.number_input("Random seed", 0, 999999, 42, 1, "%d", help="Seed for reproducibility.")
     num_replications = st.number_input("Number of replications", 1, 1000, 30, 1, "%d", 
                                        help="Number of independent simulation runs to average over.")
-    run = st.button("Run Simulation", type="primary", width="stretch")
+    run = st.button("Run Simulation", type="primary")
 
     if run:
         st.session_state.ran = True
@@ -1229,7 +1220,7 @@ elif st.session_state.wizard_step == 2:
                 })
         events_df = pd.DataFrame(all_events_data)
         
-        # ── RENDER ────────────────────────────────────────────────────────────
+        # ── RENDER ─────────────────────────────────────────────────────────
         st.markdown(f"## 📊 Simulation Results")
         st.caption(f"Averaged over {num_replications} independent replications")
         st.markdown("---")
@@ -1298,6 +1289,7 @@ elif st.session_state.wizard_step == 2:
                     "• **Emotional Exhaustion (EE)** = 100 × (0.70×Utilization + 0.30×AvailabilityStress)\n"
                     "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct + 0.40×QueuePressure)\n"
                     "• **Reduced Accomplishment (RA)** = 100 × (0.70×WaitInefficiency + 0.30×Incompletion)\n\n"
+                    "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
                     "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
             help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
                      "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
@@ -1313,4 +1305,4 @@ elif st.session_state.wizard_step == 2:
         
         st.download_button("Download Run Log (Excel)", data=runlog_pkg["bytes"],
                           file_name=f"RunLog_{num_replications}reps.{runlog_pkg['ext']}",
-                          mime=runlog_pkg["mime"], width="stretch", type="primary")
+                          mime=runlog_pkg["mime"], type="primary")
