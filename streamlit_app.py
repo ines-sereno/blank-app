@@ -1238,15 +1238,15 @@ if st.session_state.wizard_step == 1:
                 frontdesk_cap=st.session_state.fd_cap, nurse_cap=st.session_state.nurse_cap,
                 provider_cap=st.session_state.provider_cap, backoffice_cap=st.session_state.bo_cap,
                 arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
-                                          "Providers": int(arr_pr), "Back Office": int(arr_bo)},
+                                          "Provider": int(arr_pr), "Back Office": int(arr_bo)},
                 availability_per_hour={"Front Desk": int(avail_fd), "Nurse": int(avail_nu),
-                                      "Providers": int(avail_pr), "Back Office": int(avail_bo)},
+                                      "Provider": int(avail_pr), "Back Office": int(avail_bo)},
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider, svc_backoffice=svc_backoffice,
                 dist_role={"Front Desk": "normal", "NurseProtocol": "normal", "Nurse": "exponential",
-                          "Providers": "exponential", "Back Office": "exponential"},
+                          "Provider": "exponential", "Back Office": "exponential"},
                 cv_speed=cv_speed,
-                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Providers": 0.5, "Back Office": 0.5},
+                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Provider": 0.5, "Back Office": 0.5},
                 burnout_weights={"ee_rank": ee_rank, "dp_rank": dp_rank, "ra_rank": ra_rank},
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
@@ -1262,7 +1262,7 @@ if st.session_state.wizard_step == 1:
     else:
         st.info("Click **Save** to enable Continue.")
         st.button("Continue →", disabled=True)
-
+        
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
     st.subheader("Step 2 – Run & Results")
