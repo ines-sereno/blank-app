@@ -428,14 +428,17 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
 # =============================
 def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[str]) -> Dict:
     """
-    Calculate MBI-based burnout scores for each role and overall clinic.
-    Returns dict with per-role scores and overall clinic score.
+    Simplified, non-overlapping burnout model:
+      - EE: Utilization + AvailabilityStress
+      - DP: ReworkPct + QueuePressure
+      - RA: WaitInefficiency + Incompletion
+    Each subscale maps to 0–100, then Overall = 0.40*EE + 0.30*DP + 0.30*RA.
     """
     burnout_scores = {}
-    
+
     open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
     num_days = max(1, p["sim_minutes"] / DAY_MIN)
-    
+
     for role in active_roles:
         capacity = {
             "Front Desk": p["frontdesk_cap"],
@@ -443,32 +446,23 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             "Provider": p["provider_cap"],
             "Back Office": p["backoffice_cap"]
         }[role]
-        
         if capacity == 0:
             continue
-        
-        # Aggregate metrics across replications
+
         util_list = []
-        peak_util_list = []
         rework_pct_list = []
         queue_pressure_list = []
         wait_inefficiency_list = []
         completion_rate_list = []
-        
+
         for metrics in all_metrics:
-            # 1. Utilization (average)
+            # Utilization (0–1)
             total_service = metrics.service_time_sum[role]
             denom = capacity * open_time_available
             util = total_service / max(1, denom)
             util_list.append(min(1.0, util))
-            
-            # 2. Peak utilization (max hourly)
-            hours_in_day = int(np.ceil(p["open_minutes"] / 60.0))
-            service_per_hour = (total_service / num_days) / max(1, hours_in_day)
-            peak_util = service_per_hour / (capacity * 60)
-            peak_util_list.append(min(1.0, peak_util))
-            
-            # 3. Rework percentage
+
+            # ReworkPct (0–1): estimated rework time / total service time
             loop_counts = {
                 "Front Desk": metrics.loop_fd_insufficient,
                 "Nurse": metrics.loop_nurse_insufficient,
@@ -482,89 +476,62 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
                 "Provider": p["svc_provider"],
                 "Back Office": p["svc_backoffice"]
             }[role]
-            estimated_rework = loops * svc_time * 0.5
-            rework_pct = estimated_rework / max(1, total_service) if total_service > 0 else 0
+            estimated_rework = loops * max(0.0, svc_time) * 0.5
+            rework_pct = (estimated_rework / max(1, total_service)) if total_service > 0 else 0.0
             rework_pct_list.append(min(1.0, rework_pct))
-            
-            # 4. Queue pressure
-            avg_queue = np.mean(metrics.queues[role]) if len(metrics.queues[role]) > 0 else 0
+
+            # QueuePressure (0–1): avg queue / capacity
+            avg_queue = np.mean(metrics.queues[role]) if len(metrics.queues[role]) > 0 else 0.0
             queue_pressure = avg_queue / max(1, capacity)
             queue_pressure_list.append(min(1.0, queue_pressure))
-            
-            # 5. Wait inefficiency
+
+            # WaitInefficiency (0–1): avg wait / (avg wait + avg work)
             avg_work = total_service / max(1, len(metrics.task_completion_time))
-            avg_wait = np.mean(metrics.waits[role]) if len(metrics.waits[role]) > 0 else 0
+            avg_wait = np.mean(metrics.waits[role]) if len(metrics.waits[role]) > 0 else 0.0
             total_time = avg_work + avg_wait
-            wait_inefficiency = avg_wait / max(1, total_time) if total_time > 0 else 0
-            wait_inefficiency_list.append(min(1.0, wait_inefficiency))
-            
-            # 6. Task incompletion (tasks not completed same day)
+            wait_ineff = (avg_wait / max(1, total_time)) if total_time > 0 else 0.0
+            wait_inefficiency_list.append(min(1.0, wait_ineff))
+
+            # Same-day completion rate → Incompletion (0–1)
             done_ids = set(metrics.task_completion_time.keys())
             if len(done_ids) > 0:
-                same_day = sum(1 for k in done_ids 
-                              if int(metrics.task_arrival_time.get(k, 0) // DAY_MIN) == int(metrics.task_completion_time[k] // DAY_MIN))
+                same_day = sum(
+                    1 for k in done_ids
+                    if int(metrics.task_arrival_time.get(k, 0) // DAY_MIN) ==
+                       int(metrics.task_completion_time[k] // DAY_MIN)
+                )
                 completion_rate_list.append(same_day / len(done_ids))
             else:
-                completion_rate_list.append(0)
-        
-        # Average across replications
-        avg_util = np.mean(util_list)
-        avg_peak_util = np.mean(peak_util_list)
-        avg_rework = np.mean(rework_pct_list)
-        avg_queue_pressure = np.mean(queue_pressure_list)
-        avg_wait_inefficiency = np.mean(wait_inefficiency_list)
-        avg_incompletion = 1.0 - np.mean(completion_rate_list)
-        
-        # Availability constraint stress
+                completion_rate_list.append(0.0)
+
+        # Averages across replications
+        avg_util = float(np.mean(util_list)) if util_list else 0.0
+        avg_rework = float(np.mean(rework_pct_list)) if rework_pct_list else 0.0
+        avg_queue_pressure = float(np.mean(queue_pressure_list)) if queue_pressure_list else 0.0
+        avg_wait_ineff = float(np.mean(wait_inefficiency_list)) if wait_inefficiency_list else 0.0
+        avg_incompletion = 1.0 - (float(np.mean(completion_rate_list)) if completion_rate_list else 0.0)
+
+        # AvailabilityStress (0–1) from minutes available per hour
         avail_minutes = p.get("availability_per_hour", {}).get(role, 60)
-        avail_stress = (60 - avail_minutes) / 60.0
-        
-        # MBI Components (0-100 scale)
-        # 1. Emotional Exhaustion
-        emotional_exhaustion = 100 * (
-            0.40 * avg_util +
-            0.30 * avg_peak_util +
-            0.30 * avail_stress
-        )
-        
-        # 2. Depersonalization/Cynicism
-        depersonalization = 100 * (
-            0.40 * avg_rework +
-            0.35 * avg_queue_pressure +
-            0.25 * avg_incompletion
-        )
-        
-        # 3. Reduced Personal Accomplishment
-        reduced_accomplishment = 100 * (
-            0.40 * avg_wait_inefficiency +
-            0.35 * avg_incompletion +
-            0.25 * avg_queue_pressure
-        )
-        
-        # Overall Burnout (MBI composite - weighted per literature)
-        burnout_score = (
-            0.40 * emotional_exhaustion +
-            0.30 * depersonalization +
-            0.30 * reduced_accomplishment
-        )
-        
+        avail_stress = (60 - float(avail_minutes)) / 60.0
+        avail_stress = min(max(avail_stress, 0.0), 1.0)
+
+        # ---- New subscales (no shared metrics) ----
+        EE = 100.0 * (0.70 * avg_util + 0.30 * avail_stress)                       # load + constraints
+        DP = 100.0 * (0.60 * avg_rework + 0.40 * avg_queue_pressure)               # quality friction
+        RA = 100.0 * (0.70 * avg_wait_ineff + 0.30 * avg_incompletion)             # outcomes + delays
+
+        burnout_score = 0.40 * EE + 0.30 * DP + 0.30 * RA
+
         burnout_scores[role] = {
-            "overall": burnout_score,
-            "emotional_exhaustion": emotional_exhaustion,
-            "depersonalization": depersonalization,
-            "reduced_accomplishment": reduced_accomplishment
+            "overall": float(burnout_score),
+            "emotional_exhaustion": float(EE),
+            "depersonalization": float(DP),
+            "reduced_accomplishment": float(RA)
         }
-    
-    # Overall clinic burnout (average of all roles)
-    if burnout_scores:
-        clinic_burnout = np.mean([v["overall"] for v in burnout_scores.values()])
-    else:
-        clinic_burnout = 0
-    
-    return {
-        "by_role": burnout_scores,
-        "overall_clinic": clinic_burnout
-    }
+
+    clinic_burnout = np.mean([v["overall"] for v in burnout_scores.values()]) if burnout_scores else 0.0
+    return {"by_role": burnout_scores, "overall_clinic": float(clinic_burnout)}
 
 # =============================
 # Visualization functions
@@ -1291,11 +1258,11 @@ elif st.session_state.wizard_step == 2:
         # Help text below
         col1, col2 = st.columns(2)
         with col1:
-            help_icon("**Burnout Calculation:** Composite score based on Maslach Burnout Inventory (MBI). "
-                     "Combines: (1) Emotional Exhaustion (40%): utilization + peak hours + availability constraints; "
-                     "(2) Depersonalization (30%): rework + queue pressure + incompletion; "
-                     "(3) Reduced Accomplishment (30%): wait time + throughput gaps. "
-                     "\n\n**Interpretation:** Green (<25) = Low. Orange (25-50) = Moderate. Dark orange (50-75) = High. Red (75-100) = Severe.")
+            help_icon("**Burnout Calculation (Simplified):**\n"
+                    "• **Emotional Exhaustion (EE)** = 100 × (0.70×Utilization + 0.30×AvailabilityStress)\n"
+                    "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct + 0.40×QueuePressure)\n"
+                    "• **Reduced Accomplishment (RA)** = 100 × (0.70×WaitInefficiency + 0.30×Incompletion)\n\n"
+                    "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
             help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
                      "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
         with col2:
