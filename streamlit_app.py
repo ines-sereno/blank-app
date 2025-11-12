@@ -65,7 +65,7 @@ def effective_open_minutes(sim_minutes, open_minutes):
 # =============================
 # Roles / constants
 # =============================
-ROLES = ["Front Desk", "Nurse", "Provider", "Back Office"]
+ROLES = ["Front Desk", "Nurse", "Providers", "Back Office"]
 DONE = "Done"
 
 # =============================
@@ -100,9 +100,9 @@ STEP_LABELS = {
     "FD_INSUFF": "Front Desk: missing info", "FD_RETRY_QUEUE": "Front Desk: re-queued (info)",
     "FD_RETRY_DONE": "Front Desk: re-done (info)", "NU_QUEUE": "Nurse: queued", "NU_DONE": "Nurse: completed",
     "NU_INSUFF": "Nurse: missing info", "NU_RECHECK_QUEUE": "Nurse: re-check queued",
-    "NU_RECHECK_DONE": "Nurse: re-check completed", "PR_QUEUE": "Provider: queued", "PR_DONE": "Provider: completed",
-    "PR_INSUFF": "Provider: rework needed", "PR_RECHECK_QUEUE": "Provider: recheck queued",
-    "PR_RECHECK_DONE": "Provider: recheck done", "BO_QUEUE": "Back Office: queued", "BO_DONE": "Back Office: completed",
+    "NU_RECHECK_DONE": "Nurse: re-check completed", "PR_QUEUE": "Providers: queued", "PR_DONE": "Providers: completed",
+    "PR_INSUFF": "Providers: rework needed", "PR_RECHECK_QUEUE": "Providers: recheck queued",
+    "PR_RECHECK_DONE": "Providers: recheck done", "BO_QUEUE": "Back Office: queued", "BO_DONE": "Back Office: completed",
     "BO_INSUFF": "Back Office: rework needed", "BO_RECHECK_QUEUE": "Back Office: recheck queued",
     "BO_RECHECK_DONE": "Back Office: recheck done", "DONE": "Task resolved"
 }
@@ -155,10 +155,10 @@ class CHCSystem:
 
         self.role_to_res = {
             "Front Desk": self.frontdesk, "Nurse": self.nurse,
-            "Provider": self.provider, "Back Office": self.backoffice
+            "Providers": self.provider, "Back Office": self.backoffice
         }
         
-        avail_params = params.get("availability_per_hour", {"Front Desk": 60, "Nurse": 60, "Provider": 60, "Back Office": 60})
+        avail_params = params.get("availability_per_hour", {"Front Desk": 60, "Nurse": 60, "Providers": 60, "Back Office": 60})
         self.availability = {
             role: generate_availability_schedule(params["sim_minutes"], role, avail_params.get(role, 60), seed_offset)
             for role in ROLES
@@ -265,19 +265,19 @@ def handle_role(env, task_id, s: CHCSystem, role: str):
                 yield from s.scheduled_service(res, "Nurse", max(0.0, 0.5 * s.p["svc_nurse"]))
                 s.m.log(env.now, task_id, "NU_RECHECK_DONE", f"Loop #{nurse_loops}")
 
-    elif role == "Provider":
+    elif role == "Providers":
         if res is not None:
             s.m.log(env.now, task_id, "PR_QUEUE", "")
-            yield from s.scheduled_service(res, "Provider", s.p["svc_provider"])
+            yield from s.scheduled_service(res, "Providers", s.p["svc_provider"])
             s.m.log(env.now, task_id, "PR_DONE", "")
             provider_loops = 0
             while (provider_loops < s.p["max_provider_loops"]) and (random.random() < s.p["p_provider_insuff"]):
                 provider_loops += 1
                 s.m.loop_provider_insufficient += 1
-                s.m.log(env.now, task_id, "PR_INSUFF", f"Provider rework loop #{provider_loops}")
+                s.m.log(env.now, task_id, "PR_INSUFF", f"Providers rework loop #{provider_loops}")
                 yield env.timeout(s.p["provider_loop_delay"])
                 s.m.log(env.now, task_id, "PR_RECHECK_QUEUE", f"Loop #{provider_loops}")
-                yield from s.scheduled_service(res, "Provider", max(0.0, 0.5 * s.p["svc_provider"]))
+                yield from s.scheduled_service(res, "Providers", max(0.0, 0.5 * s.p["svc_provider"]))
                 s.m.log(env.now, task_id, "PR_RECHECK_DONE", f"Loop #{provider_loops}")
 
     elif role == "Back Office":
@@ -350,19 +350,19 @@ def build_process_graph(p: Dict) -> str:
 
     legend_fill = "#E9F7FF"
     cap = {"Front Desk": p.get("frontdesk_cap", 0), "Nurse": p.get("nurse_cap", 0),
-           "Provider": p.get("provider_cap", 0), "Back Office": p.get("backoffice_cap", 0)}
+           "Providers": p.get("provider_cap", 0), "Back Office": p.get("backoffice_cap", 0)}
     svc = {"Front Desk": p.get("svc_frontdesk", 0.0), "Nurse": p.get("svc_nurse", 0.0),
-           "Provider": p.get("svc_provider", 0.0), "Back Office": p.get("svc_backoffice", 0.0)}
+           "Providers": p.get("svc_provider", 0.0), "Back Office": p.get("svc_backoffice", 0.0)}
     svc_proto = p.get("svc_nurse_protocol", None)
     p_protocol = p.get("p_protocol", None)
     loops = {
         "Front Desk": (p.get("p_fd_insuff", 0.0), p.get("max_fd_loops", 0)),
         "Nurse": (p.get("p_nurse_insuff", 0.0), p.get("max_nurse_loops", 0)),
-        "Provider": (p.get("p_provider_insuff", 0.0), p.get("max_provider_loops", 0)),
+        "Providers": (p.get("p_provider_insuff", 0.0), p.get("max_provider_loops", 0)),
         "Back Office": (p.get("p_backoffice_insuff", 0.0), p.get("max_backoffice_loops", 0)),
     }
     route = p.get("route_matrix", {})
-    roles = ["Front Desk", "Nurse", "Provider", "Back Office"]
+    roles = ["Front Desk", "Nurse", "Providers", "Back Office"]
 
     lines = ['digraph CHC {', '  rankdir=LR;', '  fontsize=12;',
              '  graph [size="10,4", nodesep=0.6, ranksep=0.8, overlap=false, pad="0.1,0.1"];',
@@ -450,7 +450,7 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
         capacity = {
             "Front Desk": p["frontdesk_cap"],
             "Nurse": p["nurse_cap"],
-            "Provider": p["provider_cap"],
+            "Providers": p["provider_cap"],
             "Back Office": p["backoffice_cap"]
         }[role]
         if capacity == 0:
@@ -473,14 +473,14 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             loop_counts = {
                 "Front Desk": metrics.loop_fd_insufficient,
                 "Nurse": metrics.loop_nurse_insufficient,
-                "Provider": metrics.loop_provider_insufficient,
+                "Providers": metrics.loop_provider_insufficient,
                 "Back Office": metrics.loop_backoffice_insufficient
             }
             loops = loop_counts.get(role, 0)
             svc_time = {
                 "Front Desk": p["svc_frontdesk"],
                 "Nurse": p["svc_nurse"],
-                "Provider": p["svc_provider"],
+                "Providers": p["svc_provider"],
                 "Back Office": p["svc_backoffice"]
             }[role]
             estimated_rework = loops * max(0.0, svc_time) * 0.5
@@ -552,7 +552,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
     for metrics in all_metrics:
         for r in active_roles:
             capacity = {"Front Desk": p["frontdesk_cap"], "Nurse": p["nurse_cap"],
-                       "Provider": p["provider_cap"], "Back Office": p["backoffice_cap"]}[r]
+                       "Providers": p["provider_cap"], "Back Office": p["backoffice_cap"]}[r]
             
             if capacity > 0:
                 total_service = metrics.service_time_sum[r]
@@ -593,7 +593,7 @@ def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: 
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     max_len = max(len(m.time_stamps) for m in all_metrics)
-    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Provider': '#2ca02c', 'Back Office': '#d62728'}
+    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
     for role in active_roles:
         all_queues = []
@@ -627,13 +627,13 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     
     for metrics in all_metrics:
         loop_counts = {"Front Desk": metrics.loop_fd_insufficient, "Nurse": metrics.loop_nurse_insufficient,
-                      "Provider": metrics.loop_provider_insufficient, "Back Office": metrics.loop_backoffice_insufficient}
+                      "Providers": metrics.loop_provider_insufficient, "Back Office": metrics.loop_backoffice_insufficient}
         
         for role in active_roles:
             total_time = metrics.service_time_sum[role]
             loops = loop_counts.get(role, 0)
             svc_time = {"Front Desk": p["svc_frontdesk"], "Nurse": p["svc_nurse"],
-                       "Provider": p["svc_provider"], "Back Office": p["svc_backoffice"]}[role]
+                       "Providers": p["svc_provider"], "Back Office": p["svc_backoffice"]}[role]
             estimated_rework = loops * svc_time * 0.5
             estimated_original = total_time - estimated_rework
             original_time[role].append(max(0, estimated_original))
@@ -820,7 +820,7 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
     ])
     
     rework_pct_list = []
-    loop_counts_lists = {"Front Desk": [], "Nurse": [], "Provider": [], "Back Office": []}
+    loop_counts_lists = {"Front Desk": [], "Nurse": [], "Providers": [], "Back Office": []}
     
     for metrics in all_metrics:
         rework_tasks = set()
@@ -833,7 +833,7 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
         
         loop_counts_lists["Front Desk"].append(metrics.loop_fd_insufficient)
         loop_counts_lists["Nurse"].append(metrics.loop_nurse_insufficient)
-        loop_counts_lists["Provider"].append(metrics.loop_provider_insufficient)
+        loop_counts_lists["Providers"].append(metrics.loop_provider_insufficient)
         loop_counts_lists["Back Office"].append(metrics.loop_backoffice_insufficient)
     
     rework_overview_df = pd.DataFrame([
@@ -889,7 +889,7 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
     denom = {
         "Front Desk": max(1, p["frontdesk_cap"]) * open_time_available,
         "Nurse": max(1, p["nurse_cap"]) * open_time_available,
-        "Provider": max(1, p["provider_cap"]) * open_time_available,
+        "Providers": max(1, p["provider_cap"]) * open_time_available,
         "Back Office": max(1, p["backoffice_cap"]) * open_time_available,
     }
     
@@ -993,16 +993,16 @@ if st.session_state.wizard_step == 1:
     st.markdown("### 👥 Staffing (on duty)")
     cStaff1, cStaff2, cStaff3, cStaff4 = st.columns(4)
     with cStaff1:
-        st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
+        st.session_state.fd_cap = st.number_input("Front Desk", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
                                                help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
     with cStaff2:
-        st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
+        st.session_state.nurse_cap = st.number_input("Nurses", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
                                                   help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
     with cStaff3:
         st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d",
                                                      help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
     with cStaff4:
-        st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
+        st.session_state.bo_cap = st.number_input("Back Office", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
                                                help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
 
     fd_off = (st.session_state.fd_cap == 0)
@@ -1011,7 +1011,7 @@ if st.session_state.wizard_step == 1:
     bo_off = (st.session_state.bo_cap == 0)
 
     cap_map = {"Front Desk": st.session_state.fd_cap, "Nurse": st.session_state.nurse_cap,
-               "Provider": st.session_state.provider_cap, "Back Office": st.session_state.bo_cap}
+               "Providers": st.session_state.provider_cap, "Back Office": st.session_state.bo_cap}
 
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
@@ -1045,7 +1045,7 @@ if st.session_state.wizard_step == 1:
             arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off,
                              help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
         with cA3:
-            arr_pr = st.number_input("→ Provider", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off,
+            arr_pr = st.number_input("→ Providers", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off,
                              help="Average number of tasks arriving directly at Providers per hour (e.g., direct consultations)")
         with cA4:
             arr_bo = st.number_input("→ Back Office", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=bo_off,
@@ -1099,7 +1099,7 @@ if st.session_state.wizard_step == 1:
                 svc_nurse = st.slider("Nurse (non-protocol)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=nu_off,
                          help="Average time (minutes) for nurse tasks that don't use protocol")
             with cS2:
-                svc_provider = st.slider("Provider", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off,
+                svc_provider = st.slider("Providers", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=pr_off,
                             help="Average time (minutes) for provider to see a patient or complete a task")
                 svc_backoffice = st.slider("Back Office", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=bo_off,
                                help="Average time (minutes) for back office to complete a task (billing, insurance, etc.)")
@@ -1120,11 +1120,11 @@ if st.session_state.wizard_step == 1:
                 max_nurse_loops = st.number_input("Nurse: max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=nu_off,
                                       help="Maximum number of nurse rework loops before giving up")
             with cL2:
-                p_provider_insuff = st.slider("Provider: probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off,
+                p_provider_insuff = st.slider("Providers: probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=pr_off,
                                   help="Probability that provider task needs rework (unclear orders, missing info, etc.)")
-                max_provider_loops = st.number_input("Provider: max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off,
+                max_provider_loops = st.number_input("Providers: max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=pr_off,
                                         help="Maximum number of provider rework loops before giving up")
-                provider_loop_delay = st.slider("Provider: rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off,
+                provider_loop_delay = st.slider("Providers: rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=pr_off,
                                     help="Time delay (minutes) before provider rework")
                 p_backoffice_insuff = st.slider("Back Office: probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=bo_off,
                                     help="Probability that back office task needs rework (billing errors, missing documentation)")
@@ -1154,10 +1154,10 @@ if st.session_state.wizard_step == 1:
                     row[tgt] = val
                 return row
 
-            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.50, "Provider": 0.10, "Back Office": 0.10, DONE: 0.30}, disabled_source=fd_off)
-            route["Nurse"] = route_row_ui("Nurse", {"Provider": 0.40, "Back Office": 0.20, DONE: 0.40}, disabled_source=nu_off)
-            route["Provider"] = route_row_ui("Provider", {"Back Office": 0.30, DONE: 0.70}, disabled_source=pr_off)
-            route["Back Office"] = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, disabled_source=bo_off)
+            route["Front Desk"] = route_row_ui("Front Desk", {"Nurse": 0.50, "Providers": 0.10, "Back Office": 0.10, DONE: 0.30}, disabled_source=fd_off)
+            route["Nurse"] = route_row_ui("Nurse", {"Providers": 0.40, "Back Office": 0.20, DONE: 0.40}, disabled_source=nu_off)
+            route["Providers"] = route_row_ui("Providers", {"Back Office": 0.30, DONE: 0.70}, disabled_source=pr_off)
+            route["Back Office"] = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, disabled_source=bo_off)
 
         saved = st.form_submit_button("Save", type="primary")
 
@@ -1179,15 +1179,15 @@ if st.session_state.wizard_step == 1:
                 frontdesk_cap=st.session_state.fd_cap, nurse_cap=st.session_state.nurse_cap,
                 provider_cap=st.session_state.provider_cap, backoffice_cap=st.session_state.bo_cap,
                 arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
-                                          "Provider": int(arr_pr), "Back Office": int(arr_bo)},
+                                          "Providers": int(arr_pr), "Back Office": int(arr_bo)},
                 availability_per_hour={"Front Desk": int(avail_fd), "Nurse": int(avail_nu),
-                                      "Provider": int(avail_pr), "Back Office": int(avail_bo)},
+                                      "Providers": int(avail_pr), "Back Office": int(avail_bo)},
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider, svc_backoffice=svc_backoffice,
                 dist_role={"Front Desk": "normal", "NurseProtocol": "normal", "Nurse": "exponential",
-                          "Provider": "exponential", "Back Office": "exponential"},
+                          "Providers": "exponential", "Back Office": "exponential"},
                 cv_speed=cv_speed,
-                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Provider": 0.5, "Back Office": 0.5},
+                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Providers": 0.5, "Back Office": 0.5},
                 burnout_weights={"ee_rank": ee_rank, "dp_rank": dp_rank, "ra_rank": ra_rank},
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
@@ -1227,7 +1227,7 @@ elif st.session_state.wizard_step == 2:
         st.session_state.ran = True
         p = st.session_state["design"]
         
-        active_roles_caps = [("Provider", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
+        active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
                             ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
         active_roles = [r for r, cap in active_roles_caps if cap > 0]
         
