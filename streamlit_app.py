@@ -990,13 +990,15 @@ def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
     st.markdown("### 🏥 **Design Your Clinic**")
-    fd_off = (st.session_state.fd_cap == 0)
-    nu_off = (st.session_state.nurse_cap == 0)
-    pr_off = (st.session_state.provider_cap == 0)
-    bo_off = (st.session_state.bo_cap == 0)
+    
+    # Initialize disabled flags and capacity map based on current session state values
+    fd_off = (_init_ss("fd_cap", 3) == 0)
+    nu_off = (_init_ss("nurse_cap", 2) == 0)
+    pr_off = (_init_ss("provider_cap", 1) == 0)
+    bo_off = (_init_ss("backoffice_cap", 1) == 0)
 
-    cap_map = {"Front Desk": st.session_state.fd_cap, "Nurse": st.session_state.nurse_cap,
-               "Providers": st.session_state.provider_cap, "Back Office": st.session_state.bo_cap}
+    cap_map = {"Front Desk": _init_ss("fd_cap", 3), "Nurse": _init_ss("nurse_cap", 2),
+               "Provider": _init_ss("provider_cap", 1), "Back Office": _init_ss("backoffice_cap", 1)}
 
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
