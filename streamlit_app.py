@@ -530,6 +530,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    open_minutes = p["open_minutes"]
     
     # Calculate end-of-day queue lengths for each role
     end_of_day_queues = {role: [] for role in active_roles}
@@ -539,23 +540,46 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
         for metrics in all_metrics:
             role_daily = []
             for day in range(num_days):
-                # Find the queue length at the end of this operational day
-                end_of_day_time = (day + 1) * DAY_MIN - 1  # Last minute of the day
-                # Find closest timestamp
-                closest_idx = min(range(len(metrics.time_stamps)), 
-                                key=lambda i: abs(metrics.time_stamps[i] - end_of_day_time))
-                role_daily.append(metrics.queues[role][closest_idx])
+                # Find the queue length at the END of open hours for this day
+                # End of open hours = start of day + open_minutes
+                end_of_open_time = day * DAY_MIN + open_minutes
+                
+                # Find the timestamp closest to this time
+                if len(metrics.time_stamps) > 0:
+                    closest_idx = min(range(len(metrics.time_stamps)), 
+                                    key=lambda i: abs(metrics.time_stamps[i] - end_of_open_time))
+                    role_daily.append(metrics.queues[role][closest_idx])
+                else:
+                    role_daily.append(0)
             daily_queues.append(role_daily)
         
         # Average across replications
-        daily_array = np.array(daily_queues)
-        mean_daily = np.mean(daily_array, axis=0)
-        std_daily = np.std(daily_array, axis=0)
-        end_of_day_queues[role] = (mean_daily, std_daily)
+        if daily_queues:
+            daily_array = np.array(daily_queues)
+            mean_daily = np.mean(daily_array, axis=0)
+            std_daily = np.std(daily_array, axis=0)
+            end_of_day_queues[role] = (mean_daily, std_daily)
     
     # Create grouped bar chart
     x = np.arange(num_days)
     width = 0.8 / len(active_roles)
+    
+    for i, role in enumerate(active_roles):
+        mean_daily, std_daily = end_of_day_queues[role]
+        offset = (i - len(active_roles)/2 + 0.5) * width
+        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
+               alpha=0.8, yerr=std_daily, capsize=3)
+    
+    ax.set_xlabel('Operational Day', fontsize=10)
+    ax.set_ylabel('Queue Length (end of day)', fontsize=10)
+    ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
+    ax.legend(loc='best', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.set_ylim(bottom=0)
+    plt.tight_layout()
+    return fig
     
     for i, role in enumerate(active_roles):
         mean_daily, std_daily = end_of_day_queues[role]
