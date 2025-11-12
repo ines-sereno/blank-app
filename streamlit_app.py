@@ -988,7 +988,7 @@ if st.session_state.wizard_step == 1:
                 fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
                                                            help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
             with cFD2:
-                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
+                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 5), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
                                          help="Average number of tasks arriving at Front Desk per hour (e.g., check-ins, phone calls)")
             with cFD3:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
@@ -1001,7 +1001,7 @@ if st.session_state.wizard_step == 1:
                 nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
                                                               help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
             with cNU2:
-                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
+                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 10), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
                                          help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
             with cNU3:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
@@ -1014,7 +1014,7 @@ if st.session_state.wizard_step == 1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
                                                                  help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
             with cPR2:
-                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
+                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 3), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
                                          help="Average number of tasks arriving directly at Providers per hour (e.g., direct consultations)")
             with cPR3:
                 avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
@@ -1027,7 +1027,7 @@ if st.session_state.wizard_step == 1:
                 bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
                                                            help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
             with cBO2:
-                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 5), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
+                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
                                          help="Average number of tasks arriving directly at Back Office per hour (e.g., insurance claims, billing questions)")
             with cBO3:
                 avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
