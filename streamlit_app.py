@@ -1042,7 +1042,7 @@ if st.session_state.wizard_step == 1:
             arr_fd = st.number_input("→ Front Desk", 0, 500, _init_ss("arr_fd", 15), 1, "%d", disabled=fd_off,
                              help="Average number of tasks arriving at Front Desk per hour (e.g., check-ins, phone calls)")
         with cA2:
-            arr_nu = st.number_input("→ Nurse / MAs", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off,
+            arr_nu = st.number_input("→ Nurses", 0, 500, _init_ss("arr_nu", 20), 1, "%d", disabled=nu_off,
                              help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
         with cA3:
             arr_pr = st.number_input("→ Providers", 0, 500, _init_ss("arr_pr", 10), 1, "%d", disabled=pr_off,
@@ -1057,7 +1057,7 @@ if st.session_state.wizard_step == 1:
             avail_fd = st.number_input("Front Desk", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=fd_off,
                                help="Minutes per hour that front desk staff are available for work (60 = always available, 45 = 75% available due to breaks, meetings, etc.)")
         with cAv2:
-            avail_nu = st.number_input("Nurse / MAs", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=nu_off,
+            avail_nu = st.number_input("Nurses", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=nu_off,
                                help="Minutes per hour that nurses are available for work (lower values simulate interruptions, charting time, etc.)")
         with cAv3:
             avail_pr = st.number_input("Providers", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=pr_off,
