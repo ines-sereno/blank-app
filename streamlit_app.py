@@ -1017,7 +1017,7 @@ if st.session_state.wizard_step == 1:
         st.markdown("### Simulation horizon & variability")
         sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
                            help="Number of clinic operating days to simulate. More days = more stable results but longer runtime")
-        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
+        open_hours = st.number_input("Hours the clinic is open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
                               help="Number of hours the clinic is open each day (e.g., 8am-6pm = 10 hours)")
         cv_speed_label = st.select_slider(
             "Task speed variability",
