@@ -1027,15 +1027,6 @@ if st.session_state.wizard_step == 1:
         )
         cv_speed = cv_speed_map[cv_speed_label]
 
-        # Map Likert scale to CV values
-        cv_speed_map = {
-            "Very Low": 0.1,
-            "Low": 0.2,
-            "Moderate": 0.3,
-            "High": 0.5,
-            "Very High": 0.7
-        }
-        
         seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
                                help="Seed for reproducibility. Same seed = same results")
         num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
