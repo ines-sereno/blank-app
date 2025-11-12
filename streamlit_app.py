@@ -993,16 +993,16 @@ if st.session_state.wizard_step == 1:
     st.markdown("### 👥 Staffing (on duty)")
     cStaff1, cStaff2, cStaff3, cStaff4 = st.columns(4)
     with cStaff1:
-    st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
+        st.session_state.fd_cap = st.number_input("Front Desk staff", 0, 50, _init_ss("fd_cap", 3), 1, "%d",
                                                help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
     with cStaff2:
-    st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
+        st.session_state.nurse_cap = st.number_input("Nurses / MAs", 0, 50, _init_ss("nurse_cap", 2), 1, "%d",
                                                   help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
     with cStaff3:
-    st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d",
+        st.session_state.provider_cap = st.number_input("Providers", 0, 50, _init_ss("provider_cap", 1), 1, "%d",
                                                      help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
     with cStaff4:
-    st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
+        st.session_state.bo_cap = st.number_input("Back Office staff", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d",
                                                help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
 
     fd_off = (st.session_state.fd_cap == 0)
