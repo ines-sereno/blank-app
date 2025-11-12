@@ -991,19 +991,10 @@ def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict
 if st.session_state.wizard_step == 1:
     st.markdown("### 🏥 **Design Your Clinic**")
     
-    # Initialize disabled flags and capacity map based on current session state values
-    fd_off = (_init_ss("fd_cap", 3) == 0)
-    nu_off = (_init_ss("nurse_cap", 2) == 0)
-    pr_off = (_init_ss("provider_cap", 1) == 0)
-    bo_off = (_init_ss("backoffice_cap", 1) == 0)
-
-    cap_map = {"Front Desk": _init_ss("fd_cap", 3), "Nurse": _init_ss("nurse_cap", 2),
-               "Provider": _init_ss("provider_cap", 1), "Back Office": _init_ss("backoffice_cap", 1)}
-
     # Define route_row_ui function BEFORE the form
     def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False, 
                      fd_cap_val: int = 0, nu_cap_val: int = 0, pr_cap_val: int = 0, bo_cap_val: int = 0) -> Dict[str, float]:
-        current_cap_map = {"Front Desk": fd_cap_val, "Nurse": nu_cap_val, "Provider": pr_cap_val, "Back Office": bo_cap_val}
+        current_cap_map = {"Front Desk": fd_cap_val, "Nurse": nu_cap_val, "Providers": pr_cap_val, "Back Office": bo_cap_val}
         st.markdown(f"**{from_role} →**")
         targets = [r for r in ROLES if r != from_role] + [DONE]
         cols = st.columns(len(targets))
@@ -1097,8 +1088,8 @@ if st.session_state.wizard_step == 1:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
                                            help="Minutes per hour that nurses are available for work (lower values simulate interruptions, charting time, etc.)")
         
-        # Provider
-        with st.expander("👨‍⚕️ Provider", expanded=True):
+        # Providers
+        with st.expander("👨‍⚕️ Providers", expanded=True):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
@@ -1144,7 +1135,7 @@ if st.session_state.wizard_step == 1:
                                               help="Time delay (minutes) before starting rework loop")
                 
                 st.markdown("**Routing: Where tasks go after Front Desk**")
-                fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Provider": 0.10, "Back Office": 0.10, DONE: 0.30}, 
+                fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Providers": 0.10, "Back Office": 0.10, DONE: 0.30}, 
                                        disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
@@ -1171,12 +1162,12 @@ if st.session_state.wizard_step == 1:
                                                       help="Maximum number of nurse rework loops before giving up")
                 
                 st.markdown("**Routing: Where tasks go after Nurse**")
-                nu_route = route_row_ui("Nurse", {"Provider": 0.40, "Back Office": 0.20, DONE: 0.40}, 
+                nu_route = route_row_ui("Nurse", {"Providers": 0.40, "Back Office": 0.20, DONE: 0.40}, 
                                        disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
-            # Provider
-            with st.expander("👨‍⚕️ Provider", expanded=False):
+            # Providers
+            with st.expander("👨‍⚕️ Providers", expanded=False):
                 st.markdown("**Service Time**")
                 svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=(pr_cap_form==0),
                                         help="Average time (minutes) for provider to see a patient or complete a task")
@@ -1193,8 +1184,8 @@ if st.session_state.wizard_step == 1:
                     provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay",
                                                     help="Time delay (minutes) before provider rework")
                 
-                st.markdown("**Routing: Where tasks go after Provider**")
-                pr_route = route_row_ui("Provider", {"Back Office": 0.30, DONE: 0.70}, 
+                st.markdown("**Routing: Where tasks go after Providers**")
+                pr_route = route_row_ui("Providers", {"Back Office": 0.30, DONE: 0.70}, 
                                        disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
@@ -1217,7 +1208,7 @@ if st.session_state.wizard_step == 1:
                                                       help="Time delay (minutes) before back office rework")
                 
                 st.markdown("**Routing: Where tasks go after Back Office**")
-                bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Provider": 0.10, DONE: 0.70}, 
+                bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
                                        disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
@@ -1225,7 +1216,7 @@ if st.session_state.wizard_step == 1:
             route: Dict[str, Dict[str, float]] = {}
             route["Front Desk"] = fd_route
             route["Nurse"] = nu_route
-            route["Provider"] = pr_route
+            route["Providers"] = pr_route
             route["Back Office"] = bo_route
 
         saved = st.form_submit_button("Save", type="primary")
@@ -1246,7 +1237,7 @@ if st.session_state.wizard_step == 1:
             for r in ROLES:
                 if r in route:
                     for tgt in list(route[r].keys()):
-                        if tgt in ROLES and {"Front Desk": fd_cap_form, "Nurse": nu_cap_form, "Provider": pr_cap_form, "Back Office": bo_cap_form}[tgt] == 0:
+                        if tgt in ROLES and {"Front Desk": fd_cap_form, "Nurse": nu_cap_form, "Providers": pr_cap_form, "Back Office": bo_cap_form}[tgt] == 0:
                             route[r][tgt] = 0.0
 
             st.session_state["design"] = dict(
@@ -1254,15 +1245,15 @@ if st.session_state.wizard_step == 1:
                 frontdesk_cap=fd_cap_form, nurse_cap=nu_cap_form,
                 provider_cap=pr_cap_form, backoffice_cap=bo_cap_form,
                 arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
-                                          "Provider": int(arr_pr), "Back Office": int(arr_bo)},
+                                          "Providers": int(arr_pr), "Back Office": int(arr_bo)},
                 availability_per_hour={"Front Desk": int(avail_fd), "Nurse": int(avail_nu),
-                                      "Provider": int(avail_pr), "Back Office": int(avail_bo)},
+                                      "Providers": int(avail_pr), "Back Office": int(avail_bo)},
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider, svc_backoffice=svc_backoffice,
                 dist_role={"Front Desk": "normal", "NurseProtocol": "normal", "Nurse": "exponential",
-                          "Provider": "exponential", "Back Office": "exponential"},
+                          "Providers": "exponential", "Back Office": "exponential"},
                 cv_speed=cv_speed,
-                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Provider": 0.5, "Back Office": 0.5},
+                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Providers": 0.5, "Back Office": 0.5},
                 burnout_weights={"ee_rank": ee_rank, "dp_rank": dp_rank, "ra_rank": ra_rank},
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
