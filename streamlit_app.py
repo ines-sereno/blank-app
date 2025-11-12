@@ -1000,6 +1000,25 @@ if st.session_state.wizard_step == 1:
     cap_map = {"Front Desk": _init_ss("fd_cap", 3), "Nurse": _init_ss("nurse_cap", 2),
                "Provider": _init_ss("provider_cap", 1), "Back Office": _init_ss("backoffice_cap", 1)}
 
+    # Define route_row_ui function BEFORE the form
+    def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False) -> Dict[str, float]:
+        st.markdown(f"**{from_role} →**")
+        targets = [r for r in ROLES if r != from_role] + [DONE]
+        cols = st.columns(len(targets))
+        row: Dict[str, float] = {}
+        for i, tgt in enumerate(targets):
+            tgt_disabled = disabled_source or (tgt in ROLES and cap_map[tgt] == 0)
+            label_name = "Done" if tgt == DONE else tgt
+            key_name = f"r_{from_role}_{'done' if tgt==DONE else label_name.replace(' ','_').lower()}"
+            default_val = float(defaults.get(tgt, 0.0))
+            with cols[i]:
+                val = prob_input(f"to {label_name} ({from_role})", key=key_name, 
+                               default=(0.0 if tgt_disabled else default_val), disabled=tgt_disabled)
+                if tgt_disabled:
+                    val = 0.0
+            row[tgt] = val
+        return row
+
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
         sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
