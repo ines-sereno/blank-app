@@ -530,6 +530,15 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     max_len = max(len(m.time_stamps) for m in all_metrics)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
+    # Add shading for closed hours
+    open_hours = p["open_minutes"] / 60.0
+    num_days = int(np.ceil(max_len / DAY_MIN))
+    for day in range(num_days):
+        # Shade the closed period (after clinic closes until next morning)
+        close_time = day + (open_hours / 24.0)
+        open_time = day + 1
+        ax.axvspan(close_time, open_time, alpha=0.1, color='gray', zorder=0)
+    
     for role in active_roles:
         all_queues = []
         for metrics in all_metrics:
@@ -551,10 +560,10 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     
     ax.set_xlabel('Time (days)', fontsize=10)
     ax.set_ylabel('Queue Length', fontsize=10)
-    ax.set_title('Queue Length Over Time', fontsize=11, fontweight='bold')
+    ax.set_title('Queue Length Over Time (gray = closed hours)', fontsize=11, fontweight='bold')
     ax.legend(loc='best', fontsize=8)
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)  # Force y-axis to start at 0
+    ax.set_ylim(bottom=0)
     plt.tight_layout()
     return fig
 
