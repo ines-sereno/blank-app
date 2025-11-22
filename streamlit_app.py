@@ -702,6 +702,125 @@ def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List
     plt.tight_layout()
     return fig
 
+def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, active_roles: List[str]):
+    """
+    Create a banner showing key performance indicators:
+    - Average turnaround time
+    - Overall clinic burnout score
+    - Individual burnout dimensions (EE, DP, RA)
+    """
+    # Calculate average turnaround time
+    turnaround_times = []
+    for metrics in all_metrics:
+        comp_times = metrics.task_completion_time
+        arr_times = metrics.task_arrival_time
+        done_ids = set(comp_times.keys())
+        
+        if len(done_ids) > 0:
+            tt = [comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids]
+            turnaround_times.extend(tt)
+    
+    avg_turnaround = np.mean(turnaround_times) if turnaround_times else 0.0
+    std_turnaround = np.std(turnaround_times) if turnaround_times else 0.0
+    
+    # Get burnout metrics (averaged across all roles)
+    all_ee = [burnout_data["by_role"][r]["emotional_exhaustion"] for r in active_roles]
+    all_dp = [burnout_data["by_role"][r]["depersonalization"] for r in active_roles]
+    all_ra = [burnout_data["by_role"][r]["reduced_accomplishment"] for r in active_roles]
+    
+    avg_ee = np.mean(all_ee) if all_ee else 0.0
+    avg_dp = np.mean(all_dp) if all_dp else 0.0
+    avg_ra = np.mean(all_ra) if all_ra else 0.0
+    overall_burnout = burnout_data["overall_clinic"]
+    
+    # Helper function to get color based on value
+    def get_color(value, thresholds):
+        """thresholds = (low, moderate, high) cutoffs"""
+        if value < thresholds[0]:
+            return "#2ecc71"  # Green
+        elif value < thresholds[1]:
+            return "#f39c12"  # Orange
+        elif value < thresholds[2]:
+            return "#e67e22"  # Dark orange
+        else:
+            return "#e74c3c"  # Red
+    
+    def get_turnaround_color(minutes):
+        """Color code for turnaround time"""
+        hours = minutes / 60.0
+        if hours < 4:
+            return "#2ecc71"  # Green - fast
+        elif hours < 8:
+            return "#f39c12"  # Orange - moderate
+        elif hours < 24:
+            return "#e67e22"  # Dark orange - slow
+        else:
+            return "#e74c3c"  # Red - very slow
+    
+    # Create the banner using Streamlit columns
+    st.markdown("### 📊 Key Performance Indicators")
+    
+    # First row: Turnaround + Overall Burnout
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        turnaround_color = get_turnaround_color(avg_turnaround)
+        st.markdown(f"""
+        <div style="background-color: {turnaround_color}20; padding: 20px; border-radius: 10px; border-left: 5px solid {turnaround_color};">
+            <h4 style="margin: 0; color: #333;">⏱️ Avg Turnaround Time</h4>
+            <h2 style="margin: 10px 0; color: {turnaround_color};">{avg_turnaround:.0f} min</h2>
+            <p style="margin: 0; color: #666; font-size: 0.9em;">± {std_turnaround:.0f} min  |  {avg_turnaround/60:.1f} hours</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        burnout_color = get_color(overall_burnout, (25, 50, 75))
+        st.markdown(f"""
+        <div style="background-color: {burnout_color}20; padding: 20px; border-radius: 10px; border-left: 5px solid {burnout_color};">
+            <h4 style="margin: 0; color: #333;">🔥 Overall Clinic Burnout</h4>
+            <h2 style="margin: 10px 0; color: {burnout_color};">{overall_burnout:.1f} / 100</h2>
+            <p style="margin: 0; color: #666; font-size: 0.9em;">
+                {"🟢 Low Risk" if overall_burnout < 25 else "🟠 Moderate" if overall_burnout < 50 else "🟠 High Risk" if overall_burnout < 75 else "🔴 Severe"}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Second row: Burnout dimensions
+    st.markdown("#### Burnout Dimensions (Clinic Average)")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        ee_color = get_color(avg_ee, (25, 50, 75))
+        st.markdown(f"""
+        <div style="background-color: {ee_color}15; padding: 15px; border-radius: 8px; border-left: 4px solid {ee_color};">
+            <h5 style="margin: 0; color: #555;">😰 Emotional Exhaustion</h5>
+            <h3 style="margin: 8px 0; color: {ee_color};">{avg_ee:.1f}</h3>
+            <p style="margin: 0; color: #888; font-size: 0.85em;">Workload intensity</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        dp_color = get_color(avg_dp, (25, 50, 75))
+        st.markdown(f"""
+        <div style="background-color: {dp_color}15; padding: 15px; border-radius: 8px; border-left: 4px solid {dp_color};">
+            <h5 style="margin: 0; color: #555;">😤 Depersonalization</h5>
+            <h3 style="margin: 8px 0; color: {dp_color};">{avg_dp:.1f}</h3>
+            <p style="margin: 0; color: #888; font-size: 0.85em;">Quality friction</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        ra_color = get_color(avg_ra, (25, 50, 75))
+        st.markdown(f"""
+        <div style="background-color: {ra_color}15; padding: 15px; border-radius: 8px; border-left: 4px solid {ra_color};">
+            <h5 style="margin: 0; color: #555;">😔 Reduced Accomplishment</h5>
+            <h3 style="margin: 8px 0; color: {ra_color};">{avg_ra:.1f}</h3>
+            <p style="margin: 0; color: #888; font-size: 0.85em;">Task completion</p>
+        </div>
+        """, unsafe_allow_html=True)
+
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
@@ -1479,6 +1598,10 @@ elif st.session_state.wizard_step == 2:
     # ── RENDER ─────────────────────────────────────────────────────────
     st.markdown(f"## 📊 Simulation Results")
     st.caption(f"Averaged over {num_replications} independent replications")
+    
+    # KPI BANNER
+    create_kpi_banner(all_metrics, p, burnout_data, active_roles)
+    
     st.markdown("---")
     
     # ============================================================
