@@ -117,14 +117,40 @@ def generate_availability_schedule(sim_minutes: int, role: str, minutes_per_hour
     available_minutes = set()
     total_hours = int(np.ceil(sim_minutes / 60.0))
     
+    # Work in 10-minute blocks instead of individual minutes
+    BLOCK_SIZE = 10
+    
     for hour in range(total_hours):
         hour_start = hour * 60
         hour_end = min((hour + 1) * 60, sim_minutes)
         hour_length = hour_end - hour_start
-        available_in_hour = min(minutes_per_hour, hour_length)
-        all_minutes_in_hour = list(range(hour_start, hour_end))
-        selected = local_random.sample(all_minutes_in_hour, available_in_hour)
-        available_minutes.update(selected)
+        
+        # Calculate how many blocks we need
+        blocks_needed = int(np.ceil(minutes_per_hour / BLOCK_SIZE))
+        total_blocks = hour_length // BLOCK_SIZE
+        
+        if total_blocks <= 0:
+            continue
+            
+        # Randomly select which blocks to make available
+        blocks_to_select = min(blocks_needed, total_blocks)
+        selected_block_indices = local_random.sample(range(total_blocks), blocks_to_select)
+        
+        # Convert block indices to actual minutes
+        for block_idx in selected_block_indices:
+            block_start = hour_start + (block_idx * BLOCK_SIZE)
+            block_end = min(block_start + BLOCK_SIZE, hour_end)
+            available_minutes.update(range(block_start, block_end))
+        
+        # Handle any remaining minutes needed (if minutes_per_hour not divisible by 10)
+        current_available = len([m for m in available_minutes if hour_start <= m < hour_end])
+        if current_available < minutes_per_hour and current_available < hour_length:
+            remaining_needed = min(minutes_per_hour - current_available, hour_length - current_available)
+            # Find unavailable minutes in this hour
+            unavailable = [m for m in range(hour_start, hour_end) if m not in available_minutes]
+            if unavailable and remaining_needed > 0:
+                extra_minutes = local_random.sample(unavailable, min(remaining_needed, len(unavailable)))
+                available_minutes.update(extra_minutes)
     
     return available_minutes
 
