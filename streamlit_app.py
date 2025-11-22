@@ -1488,7 +1488,7 @@ elif st.session_state.wizard_step == 2:
     st.markdown(f"## Results")
     st.caption(f"Averaged over {num_replications} independent replications")
     
-   create_kpi_banner(all_metrics, p, burnout_data, active_roles)
+create_kpi_banner(all_metrics, p, burnout_data, active_roles)
     
     help_icon(
         "**Avg Turnaround:** Mean time from task arrival to completion across all tasks (includes overnight delays).\n\n"
