@@ -902,8 +902,10 @@ def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, a
     with col5:
         st.metric("Reduced Accomplishment", f"{avg_ra:.1f}")
 
-def help_icon(help_text: str):
-    with st.expander("How is this calculated?"):
+def help_icon(help_text: str, title: str = None):
+    if title is None:
+        title = "How is this calculated?"
+    with st.expander(title):
         st.caption(help_text)
 
 def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: List[str]):
@@ -1142,6 +1144,33 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
     st.markdown("### Design Your Clinic")
+    
+    with st.expander("ℹ️ About This Model", expanded=True):
+        st.markdown("""
+        This **discrete event simulation (DES) model** helps you understand how staffing, workflows, and workload 
+        affect both **operational performance** and **staff burnout** in community health centers.
+        
+        **How it works:**
+        - Tasks arrive at different roles (Front Desk, Nurses, Providers, Back Office)
+        - Staff process tasks based on availability and service times
+        - Tasks may loop back for rework or missing information
+        - The simulation tracks queues, wait times, and completion rates over multiple days
+        
+        **How to use it:**
+        1. **Configure your clinic** below by setting staffing levels, arrival rates, and availability
+        2. **Adjust advanced settings** (optional) to fine-tune service times, rework rates, and task routing
+        3. **Click "Save"** to store your configuration
+        4. **Click "Run Simulation"** to see results including burnout scores, utilization, and bottlenecks
+        5. **Try different scenarios** to test interventions (e.g., hire more staff, reduce arrivals, improve workflows)
+        
+        **Tips:**
+        - Start with the default values to see a baseline scenario
+        - Change one thing at a time to understand its impact
+        - Pay attention to roles showing high utilization (>75%) or high burnout (>50)
+        - Use the KPI banner in results to quickly compare different scenarios
+        """)
+    
+    st.markdown("---")
     
     def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False, 
                      fd_cap_val: int = 0, nu_cap_val: int = 0, pr_cap_val: int = 0, bo_cap_val: int = 0) -> Dict[str, float]:
@@ -1401,7 +1430,7 @@ if st.session_state.wizard_step == 1:
         
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
-    st.markdown("## Running Simulation...")
+    st.markdown("## Simulation Run")
     st.button("← Back to Design", on_click=go_back)
 
     if not st.session_state["design"]:
@@ -1456,10 +1485,19 @@ elif st.session_state.wizard_step == 2:
             })
     events_df = pd.DataFrame(all_events_data)
     
-    st.markdown(f"## Simulation Results")
+    st.markdown(f"## Results")
     st.caption(f"Averaged over {num_replications} independent replications")
     
-    create_kpi_banner(all_metrics, p, burnout_data, active_roles)
+   create_kpi_banner(all_metrics, p, burnout_data, active_roles)
+    
+    help_icon(
+        "**Avg Turnaround:** Mean time from task arrival to completion across all tasks (includes overnight delays).\n\n"
+        "**Overall Burnout:** Clinic-wide burnout score (0-100) averaged across all roles.\n\n"
+        "**Emotional Exhaustion:** Measures workload intensity and time pressure (utilization + availability stress).\n\n"
+        "**Depersonalization:** Measures quality friction and unpredictability (rework + queue volatility).\n\n"
+        "**Reduced Accomplishment:** Measures task completion effectiveness (incompletion + throughput deficit).",
+        title="How are the Key Performance Indicators calculated?"
+    )
     
     st.markdown("---")
     
@@ -1479,10 +1517,12 @@ elif st.session_state.wizard_step == 2:
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Calculation:** Counts tasks completed each day across replications. "
-                 "**Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
+             "**Interpretation:** Declining = falling behind; stable/increasing = keeping up.",
+             title="How is Daily Throughput calculated?")
     with col2:
         help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
-                 "**Interpretation:** Persistent high queues = bottlenecks.")
+             "**Interpretation:** Persistent high queues = bottlenecks.",
+             title="How is End-of-Day Queue Backlog calculated?")
     
     st.markdown("---")
     
@@ -1514,35 +1554,39 @@ elif st.session_state.wizard_step == 2:
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Burnout Calculation (Refined):**\n"
-                "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
-                "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
-                "• **Depersonalization (DP)** = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
-                "  *ReworkPct uses quadratic penalty; QueueVolatility = task switching stress\n\n"
-                "• **Reduced Accomplishment (RA)** = 100 × (0.55×Incompletion* + 0.45×ThroughputDeficit)\n"
-                "  *Measures actual task completion vs. expected workload\n\n"
-                "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
-                "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
+            "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
+            "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
+            "• **Depersonalization (DP)** = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
+            "  *ReworkPct uses quadratic penalty; QueueVolatility = task switching stress\n\n"
+            "• **Reduced Accomplishment (RA)** = 100 × (0.55×Incompletion* + 0.45×ThroughputDeficit)\n"
+            "  *Measures actual task completion vs. expected workload\n\n"
+            "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
+            "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.",
+            title="How is the Burnout Index calculated?")
     with col2:
         help_icon("**Calculation:** Utilization = (Actual work time) ÷ (Staff capacity × Open hours × Availability %)\n\n"
-                 "Capped at 100% (can't exceed available time).\n\n"
-                 "**Interpretation:**\n"
-                 "• Green (<50%) = Underutilized\n"
-                 "• Orange (50-75%) = Healthy workload\n"
-                 "• Dark Orange (75-90%) = High stress\n"
-                 "• Red (>90%) = Critical burnout risk")
+             "Capped at 100% (can't exceed available time).\n\n"
+             "**Interpretation:**\n"
+             "• Green (<50%) = Underutilized\n"
+             "• Orange (50-75%) = Healthy workload\n"
+             "• Dark Orange (75-90%) = High stress\n"
+             "• Red (>90%) = Critical burnout risk",
+             title="How is Staff Utilization calculated?")
 
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
-                 "**Interpretation:** High rework % = errors, missing info, poor handoffs.")
+             "**Interpretation:** High rework % = errors, missing info, poor handoffs.",
+             title="How is Rework Impact calculated?")
     with col2:
         help_icon("**Calculation:** (Total work needed - Available capacity) ÷ (Days × Staff count)\n\n"
-                 "Measures additional hours per person per day needed to finish all tasks.\n\n"
-                 "**Interpretation:**\n"
-                 "• 0 hours = Keeping up with workload\n"
-                 "• 0.5 hours = 30min overtime daily\n"
-                 "• 1+ hours = Serious capacity shortage\n"
-                 "• 2+ hours = Critical understaffing")
+             "Measures additional hours per person per day needed to finish all tasks.\n\n"
+             "**Interpretation:**\n"
+             "• 0 hours = Keeping up with workload\n"
+             "• 0.5 hours = 30min overtime daily\n"
+             "• 1+ hours = Serious capacity shortage\n"
+             "• 2+ hours = Critical understaffing",
+             title="How is Overtime Needed calculated?")
     
     st.markdown("---")
 
