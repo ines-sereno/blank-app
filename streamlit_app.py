@@ -606,6 +606,102 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     plt.tight_layout()
     return fig
 
+def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Bar chart showing additional hours per day needed to complete all tasks.
+    Measures the gap between demand and capacity.
+    """
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    
+    num_days = max(1, p["sim_minutes"] / DAY_MIN)
+    open_hours_per_day = p["open_minutes"] / 60.0
+    
+    # Calculate overtime needed for each role across replications
+    overtime_lists = {r: [] for r in active_roles}
+    
+    for metrics in all_metrics:
+        for role in active_roles:
+            capacity = {
+                "Front Desk": p["frontdesk_cap"],
+                "Nurse": p["nurse_cap"],
+                "Providers": p["provider_cap"],
+                "Back Office": p["backoffice_cap"]
+            }[role]
+            
+            if capacity > 0:
+                # Total work time needed (minutes)
+                total_work_needed = metrics.service_time_sum[role]
+                
+                # Available capacity per day (minutes)
+                avail_minutes_per_hour = p.get("availability_per_hour", {}).get(role, 60)
+                capacity_per_day = capacity * p["open_minutes"] * (avail_minutes_per_hour / 60.0)
+                
+                # Total capacity available over simulation (minutes)
+                total_capacity_available = capacity_per_day * num_days
+                
+                # Overtime needed (minutes)
+                overtime_minutes = max(0, total_work_needed - total_capacity_available)
+                
+                # Convert to hours per day per person
+                if overtime_minutes > 0:
+                    overtime_hours_total = overtime_minutes / 60.0
+                    overtime_hours_per_day = overtime_hours_total / num_days
+                    overtime_hours_per_person = overtime_hours_per_day / capacity
+                else:
+                    overtime_hours_per_person = 0.0
+                
+                overtime_lists[role].append(overtime_hours_per_person)
+    
+    # Calculate means and standard deviations
+    means = [np.mean(overtime_lists[r]) for r in active_roles]
+    stds = [np.std(overtime_lists[r]) for r in active_roles]
+    
+    # Color bars by severity
+    colors = []
+    for mean_ot in means:
+        if mean_ot < 0.5:
+            colors.append('#2ecc71')  # Green - Manageable
+        elif mean_ot < 1.0:
+            colors.append('#f39c12')  # Orange - Moderate stress
+        elif mean_ot < 2.0:
+            colors.append('#e67e22')  # Dark Orange - High stress
+        else:
+            colors.append('#e74c3c')  # Red - Critical
+    
+    x = np.arange(len(active_roles))
+    bars = ax.bar(x, means, color=colors, alpha=0.8, width=0.6)
+    
+    # Add error bars
+    ax.errorbar(x, means, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6)
+    
+    # Add reference lines
+    ax.axhline(y=0.5, color='orange', linestyle='--', alpha=0.4, linewidth=1.5, label='0.5 hr/day')
+    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.4, linewidth=1.5, label='1.0 hr/day')
+    
+    ax.set_xlabel('Role', fontsize=10)
+    ax.set_ylabel('Additional Hours per Day per Person', fontsize=10)
+    ax.set_title('Overtime Needed to Clear Backlog', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(active_roles, fontsize=9, rotation=15, ha='right')
+    ax.set_ylim(bottom=0)
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels on bars
+    for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+        height = bar.get_height()
+        if height > 0.01:  # Only show label if meaningful
+            ax.text(bar.get_x() + bar.get_width()/2., height + max(0.05, std),
+                    f'{mean:.1f}h\n±{std:.1f}',
+                    ha='center', va='bottom', fontsize=8, fontweight='bold')
+        else:
+            ax.text(bar.get_x() + bar.get_width()/2., 0.05,
+                    '0.0h',
+                    ha='center', va='bottom', fontsize=8, fontweight='bold', color='gray')
+    
+    plt.tight_layout()
+    return fig
+
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
@@ -1418,28 +1514,35 @@ elif st.session_state.wizard_step == 2:
     # ============================================================
     st.markdown("## 🔥 Burnout & Workload Indicators")
     st.caption("Which roles are at risk of being overwhelmed?")
-    
-    # Top row: Burnout Index | Utilization Heatmap
+
+    # Top row: Burnout Index | Utilization
     col1, col2 = st.columns(2)
     with col1:
         fig_burnout = plot_burnout_scores(burnout_data, active_roles)
         st.pyplot(fig_burnout, use_container_width=False)
         plt.close(fig_burnout)
-        
-        # Rework Impact below Burnout Index
-        fig_rework = plot_rework_impact(all_metrics, p, active_roles)
-        st.pyplot(fig_rework, use_container_width=False)
-        plt.close(fig_rework)
-    
+
     with col2:
         fig_utilization = plot_utilization_by_role(all_metrics, p, active_roles)
         st.pyplot(fig_utilization, use_container_width=False)
         plt.close(fig_utilization)
+
+    # Bottom row: Rework Impact | Overtime Needed
+    col1, col2 = st.columns(2)
+    with col1:
+        fig_rework = plot_rework_impact(all_metrics, p, active_roles)
+        st.pyplot(fig_rework, use_container_width=False)
+        plt.close(fig_rework)
+
+    with col2:
+        fig_overtime = plot_overtime_needed(all_metrics, p, active_roles)
+        st.pyplot(fig_overtime, use_container_width=False)
+        plt.close(fig_overtime)
     
     # Help text below
     col1, col2 = st.columns(2)
     with col1:
-        help_icon("**Burnout Calculation:**\n"
+        help_icon("**Burnout Calculation (Refined):**\n"
             "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
             "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
             "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
@@ -1448,8 +1551,6 @@ elif st.session_state.wizard_step == 2:
             "  *Measures actual task completion vs. expected workload\n\n"
             "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
             "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
-        help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
-                 "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
     with col2:
         help_icon("**Calculation:** Utilization = (Actual work time) ÷ (Staff capacity × Open hours × Availability %)\n\n"
              "Capped at 100% (can't exceed available time).\n\n"
@@ -1459,8 +1560,20 @@ elif st.session_state.wizard_step == 2:
              "• Dark Orange (75-90%) = High stress zone\n"
              "• Red (>90%) = Critical burnout risk\n\n"
              "Error bars show variation across replications.")
-    
-    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
+             "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
+    with col2:
+        help_icon("**Calculation:** (Total work needed - Available capacity) ÷ (Days × Staff count)\n\n"
+             "Measures additional hours per person per day needed to finish all tasks.\n\n"
+             "**Interpretation:**\n"
+             "• 0 hours = Keeping up with workload\n"
+             "• 0.5 hours = 30min overtime daily\n"
+             "• 1+ hours = Serious capacity shortage\n"
+             "• 2+ hours = Critical understaffing\n\n"
+             "This is unsustainable overtime leading to burnout.")
 
     st.markdown("## 💾 Download Data")
     with st.spinner("Producing run log for download..."):
