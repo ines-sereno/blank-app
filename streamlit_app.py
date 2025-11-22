@@ -528,49 +528,80 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
 # =============================
 # Visualization functions
 # =============================
-def plot_utilization_heatmap(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    open_minutes = p["open_minutes"]
-    hours_in_day = int(np.ceil(open_minutes / 60.0))
-    role_hour_utils = {r: np.zeros(hours_in_day) for r in active_roles}
+def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Bar chart showing utilization by role (mean ± SD across replications).
+    Utilization = actual work time / available capacity time
+    """
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
     
-    open_time_per_hour = 60
+    open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
+    
+    # Calculate utilization for each role across replications
+    util_lists = {r: [] for r in active_roles}
+    
     for metrics in all_metrics:
-        for r in active_roles:
-            capacity = {"Front Desk": p["frontdesk_cap"], "Nurse": p["nurse_cap"],
-                       "Providers": p["provider_cap"], "Back Office": p["backoffice_cap"]}[r]
+        for role in active_roles:
+            capacity = {
+                "Front Desk": p["frontdesk_cap"],
+                "Nurse": p["nurse_cap"],
+                "Providers": p["provider_cap"],
+                "Back Office": p["backoffice_cap"]
+            }[role]
             
             if capacity > 0:
-                total_service = metrics.service_time_sum[r]
-                num_days = p["sim_minutes"] / DAY_MIN
-                avg_service_per_day = total_service / max(1, num_days)
-                service_per_hour = avg_service_per_day / max(1, hours_in_day)
+                # Actual work time
+                total_service = metrics.service_time_sum[role]
                 
-                for h in range(hours_in_day):
-                    util = service_per_hour / (capacity * open_time_per_hour)
-                    role_hour_utils[r][h] += util
+                # Available capacity time (staff × open hours × availability)
+                avail_minutes = p.get("availability_per_hour", {}).get(role, 60)
+                available_capacity = capacity * open_time_available * (avail_minutes / 60.0)
+                
+                # Utilization = work / capacity (capped at 100%)
+                util = min(1.0, total_service / max(1, available_capacity))
+                util_lists[role].append(util)
     
-    num_reps = len(all_metrics)
-    for r in active_roles:
-        role_hour_utils[r] /= num_reps
+    # Calculate means and standard deviations
+    means = [np.mean(util_lists[r]) * 100 for r in active_roles]
+    stds = [np.std(util_lists[r]) * 100 for r in active_roles]
     
-    fig, ax = plt.subplots(figsize=(6, 2.5), dpi=40)
-    data = np.array([role_hour_utils[r] for r in active_roles])
-    im = ax.imshow(data, cmap='RdYlGn_r', aspect='auto', vmin=0, vmax=1, interpolation='nearest')
+    # Color bars by utilization level
+    colors = []
+    for mean_util in means:
+        if mean_util < 50:
+            colors.append('#2ecc71')  # Green - Underutilized
+        elif mean_util < 75:
+            colors.append('#f39c12')  # Orange - Moderate
+        elif mean_util < 90:
+            colors.append('#e67e22')  # Dark Orange - High
+        else:
+            colors.append('#e74c3c')  # Red - Critical
     
-    ax.set_xticks(np.arange(hours_in_day))
-    ax.set_xticklabels([f"{h+1}" for h in range(hours_in_day)], fontsize=8)
-    ax.set_yticks(np.arange(len(active_roles)))
-    ax.set_yticklabels(active_roles, fontsize=9)
-    ax.set_xlabel('Hour of Workday', fontsize=10)
-    ax.set_ylabel('Role', fontsize=10)
-    ax.set_title('Utilization Heatmap', fontsize=11, fontweight='bold')
+    x = np.arange(len(active_roles))
+    bars = ax.bar(x, means, color=colors, alpha=0.8, width=0.6)
     
-    cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label('Utilization', rotation=270, labelpad=15, fontsize=9)
+    # Add error bars
+    ax.errorbar(x, means, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6)
     
-    for i in range(len(active_roles)):
-        for j in range(hours_in_day):
-            ax.text(j, i, f'{data[i, j]:.0%}', ha="center", va="center", color="black", fontsize=7)
+    # Add reference lines
+    ax.axhline(y=75, color='orange', linestyle='--', alpha=0.4, linewidth=1.5, label='75% threshold')
+    ax.axhline(y=90, color='red', linestyle='--', alpha=0.4, linewidth=1.5, label='90% critical')
+    
+    ax.set_xlabel('Role', fontsize=10)
+    ax.set_ylabel('Utilization (%)', fontsize=10)
+    ax.set_title('Staff Utilization by Role', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(active_roles, fontsize=9, rotation=15, ha='right')
+    ax.set_ylim(0, 105)
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels on bars
+    for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 2,
+                f'{mean:.0f}%\n±{std:.0f}%',
+                ha='center', va='bottom', fontsize=8, fontweight='bold')
     
     plt.tight_layout()
     return fig
@@ -1401,9 +1432,9 @@ elif st.session_state.wizard_step == 2:
         plt.close(fig_rework)
     
     with col2:
-        fig_heatmap = plot_utilization_heatmap(all_metrics, p, active_roles)
-        st.pyplot(fig_heatmap, use_container_width=False)
-        plt.close(fig_heatmap)
+        fig_utilization = plot_utilization_by_role(all_metrics, p, active_roles)
+        st.pyplot(fig_utilization, use_container_width=False)
+        plt.close(fig_utilization)
     
     # Help text below
     col1, col2 = st.columns(2)
@@ -1420,8 +1451,14 @@ elif st.session_state.wizard_step == 2:
         help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
                  "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
     with col2:
-        help_icon("**Calculation:** % of available time each role spends working per hour (service time ÷ capacity × available minutes). "
-                 "**Interpretation:** Red (>80%) = high burnout risk. Yellow (50-80%) = moderate. Green (<50%) = underutilized.")
+        help_icon("**Calculation:** Utilization = (Actual work time) ÷ (Staff capacity × Open hours × Availability %)\n\n"
+             "Capped at 100% (can't exceed available time).\n\n"
+             "**Interpretation:**\n"
+             "• Green (<50%) = Underutilized / slack capacity\n"
+             "• Orange (50-75%) = Healthy workload\n"
+             "• Dark Orange (75-90%) = High stress zone\n"
+             "• Red (>90%) = Critical burnout risk\n\n"
+             "Error bars show variation across replications.")
     
     st.markdown("---")
 
