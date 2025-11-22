@@ -800,7 +800,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     ax.set_ylabel('Queue Length (end of day)', fontsize=10)
     ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels([f'Day {i+1}' for i in range(num_days)])
+    ax.set_xticklabels([f'{i+1}' for i in range(num_days)])
     ax.legend(loc='best', fontsize=8)
     ax.grid(True, alpha=0.3, axis='y')
     ax.set_ylim(bottom=0)
@@ -857,10 +857,22 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     original_means = [np.mean(original_time[r]) for r in active_roles]
     rework_means = [np.mean(rework_time[r]) for r in active_roles]
     
+    original_stds = [np.std(original_time[r]) for r in active_roles]
+    rework_stds = [np.std(rework_time[r]) for r in active_roles]
+    
     x = np.arange(len(active_roles))
     width = 0.6
-    ax.bar(x, original_means, width, label='Original Work', color='#3498db')
-    ax.bar(x, rework_means, width, bottom=original_means, label='Rework', color='#e74c3c')
+    
+    # Plot bars
+    bars1 = ax.bar(x, original_means, width, label='Original Work', color='#3498db')
+    bars2 = ax.bar(x, rework_means, width, bottom=original_means, label='Rework', color='#e74c3c')
+    
+    # Add error bars for total (original + rework)
+    total_means = [original_means[i] + rework_means[i] for i in range(len(active_roles))]
+    # Calculate combined standard deviation (assuming independence)
+    total_stds = [np.sqrt(original_stds[i]**2 + rework_stds[i]**2) for i in range(len(active_roles))]
+    
+    ax.errorbar(x, total_means, yerr=total_stds, fmt='none', ecolor='black', capsize=5, alpha=0.6, linewidth=1.5)
     
     ax.set_xlabel('Role', fontsize=10)
     ax.set_ylabel('Time (minutes)', fontsize=10)
@@ -874,7 +886,9 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
         total = orig + rew
         if total > 0 and rew > 0:
             pct = 100 * rew / total
-            ax.text(i, total + 20, f'{pct:.1f}%', ha='center', va='bottom', fontsize=8)
+            # Position label above error bar
+            label_height = total + total_stds[i] + 20
+            ax.text(i, label_height, f'{pct:.1f}%', ha='center', va='bottom', fontsize=8)
     
     plt.tight_layout()
     return fig
@@ -882,17 +896,34 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
 def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     """
     Bar chart showing burnout scores by role + overall clinic.
-    Color-coded by severity.
+    Color-coded by severity with error bars showing variation across roles.
     """
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     
     roles_plot = active_roles + ["Overall Clinic"]
-    scores = [burnout_data["by_role"][r]["overall"] for r in active_roles]
-    scores.append(burnout_data["overall_clinic"])
+    
+    # Get scores for each role
+    role_scores = [burnout_data["by_role"][r]["overall"] for r in active_roles]
+    role_scores.append(burnout_data["overall_clinic"])
+    
+    # For individual roles, we can show the SD of the subscales as a proxy for uncertainty
+    # For overall clinic, show the SD across roles
+    stds = []
+    for role in active_roles:
+        # Standard deviation of the three subscales for this role
+        subscales = [
+            burnout_data["by_role"][role]["emotional_exhaustion"],
+            burnout_data["by_role"][role]["depersonalization"],
+            burnout_data["by_role"][role]["reduced_accomplishment"]
+        ]
+        stds.append(np.std(subscales))
+    
+    # For overall clinic, use SD across roles
+    stds.append(np.std(role_scores[:-1]))  # SD of all role scores (excluding overall itself)
     
     # Color by severity
     colors = []
-    for score in scores:
+    for score in role_scores:
         if score < 25:
             colors.append('#2ecc71')  # Green - Low
         elif score < 50:
@@ -903,7 +934,10 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
             colors.append('#e74c3c')  # Red - Severe
     
     x = np.arange(len(roles_plot))
-    bars = ax.bar(x, scores, color=colors, width=0.6)
+    bars = ax.bar(x, role_scores, color=colors, width=0.6)
+    
+    # Add error bars
+    ax.errorbar(x, role_scores, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6, linewidth=1.5)
     
     ax.set_xlabel('Role', fontsize=10)
     ax.set_ylabel('Burnout Score (0-100)', fontsize=10)
@@ -915,9 +949,10 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     ax.grid(True, alpha=0.3, axis='y')
     
     # Add value labels
-    for i, (bar, score) in enumerate(zip(bars, scores)):
+    for i, (bar, score, std) in enumerate(zip(bars, role_scores, stds)):
         height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + 2,
+        label_height = height + std + 2
+        ax.text(bar.get_x() + bar.get_width()/2., label_height,
                 f'{score:.1f}', ha='center', va='bottom', fontsize=8, fontweight='bold')
     
     # Legend
