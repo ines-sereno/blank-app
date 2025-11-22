@@ -1490,14 +1490,14 @@ elif st.session_state.wizard_step == 2:
     
     create_kpi_banner(all_metrics, p, burnout_data, active_roles)
     
-        help_icon(
+    help_icon(
             "**Avg Turnaround:** Mean time from task arrival to completion across all tasks (includes overnight delays).\n\n"
             "**Overall Burnout:** Clinic-wide burnout score (0-100) averaged across all roles.\n\n"
             "**Emotional Exhaustion:** Measures workload intensity and time pressure (utilization + availability stress).\n\n"
             "**Depersonalization:** Measures quality friction and unpredictability (rework + queue volatility).\n\n"
             "**Reduced Accomplishment:** Measures task completion effectiveness (incompletion + throughput deficit).",
             title="How are the Key Performance Indicators calculated?"
-        )
+    )
     
     st.markdown("---")
     
