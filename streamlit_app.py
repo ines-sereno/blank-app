@@ -704,10 +704,7 @@ def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List
 
 def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, active_roles: List[str]):
     """
-    Create a banner showing key performance indicators:
-    - Average turnaround time
-    - Overall clinic burnout score
-    - Individual burnout dimensions (EE, DP, RA)
+    Create a simple one-line banner showing key metrics.
     """
     # Calculate average turnaround time
     turnaround_times = []
@@ -721,7 +718,6 @@ def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, a
             turnaround_times.extend(tt)
     
     avg_turnaround = np.mean(turnaround_times) if turnaround_times else 0.0
-    std_turnaround = np.std(turnaround_times) if turnaround_times else 0.0
     
     # Get burnout metrics (averaged across all roles)
     all_ee = [burnout_data["by_role"][r]["emotional_exhaustion"] for r in active_roles]
@@ -733,29 +729,24 @@ def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, a
     avg_ra = np.mean(all_ra) if all_ra else 0.0
     overall_burnout = burnout_data["overall_clinic"]
     
-    # Helper function to get color based on value
-    def get_color(value, thresholds):
-        """thresholds = (low, moderate, high) cutoffs"""
-        if value < thresholds[0]:
-            return "#2ecc71"  # Green
-        elif value < thresholds[1]:
-            return "#f39c12"  # Orange
-        elif value < thresholds[2]:
-            return "#e67e22"  # Dark orange
-        else:
-            return "#e74c3c"  # Red
+    # Create simple metric row
+    col1, col2, col3, col4, col5 = st.columns(5)
     
-    def get_turnaround_color(minutes):
-        """Color code for turnaround time"""
-        hours = minutes / 60.0
-        if hours < 4:
-            return "#2ecc71"  # Green - fast
-        elif hours < 8:
-            return "#f39c12"  # Orange - moderate
-        elif hours < 24:
-            return "#e67e22"  # Dark orange - slow
-        else:
-            return "#e74c3c"  # Red - very slow
+    with col1:
+        st.metric("⏱️ Avg Turnaround", f"{avg_turnaround:.0f} min", 
+                 delta=f"{avg_turnaround/60:.1f} hrs", delta_color="off")
+    
+    with col2:
+        st.metric("🔥 Overall Burnout", f"{overall_burnout:.1f}")
+    
+    with col3:
+        st.metric("😰 Emotional Exhaustion", f"{avg_ee:.1f}")
+    
+    with col4:
+        st.metric("😤 Depersonalization", f"{avg_dp:.1f}")
+    
+    with col5:
+        st.metric("😔 Reduced Accomplishment", f"{avg_ra:.1f}")
     
     # Create the banner using Streamlit columns
     st.markdown("### 📊 Key Performance Indicators")
