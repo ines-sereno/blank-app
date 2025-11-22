@@ -363,10 +363,10 @@ def run_single_replication(p: Dict, seed: int) -> Metrics:
 # =============================
 def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[str]) -> Dict:
     """
-    Simplified, non-overlapping burnout model with user-defined priority weights:
-      - EE: Utilization + AvailabilityStress
-      - DP: ReworkPct + QueuePressure
-      - RA: WaitInefficiency + Incompletion
+    Refined burnout model with non-overlapping dimensions and non-linear effects:
+      - EE: Utilization (with threshold effects) + AvailabilityStress
+      - DP: ReworkPct + TaskSwitching (from queue volatility)
+      - RA: SameDayCompletion + TaskThroughput
     Each subscale maps to 0–100, then Overall uses user-defined weights.
     """
     # Convert rankings to weights (1st=0.5, 2nd=0.3, 3rd=0.2)
@@ -391,20 +391,23 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
         if capacity == 0:
             continue
 
+        # ============================================================
+        # Data collection across replications
+        # ============================================================
         util_list = []
         rework_pct_list = []
-        queue_pressure_list = []
-        wait_inefficiency_list = []
+        queue_volatility_list = []
         completion_rate_list = []
+        throughput_rate_list = []
 
         for metrics in all_metrics:
-            # Utilization (0–1)
+            # --- UTILIZATION (0–1) ---
             total_service = metrics.service_time_sum[role]
             denom = capacity * open_time_available
             util = total_service / max(1, denom)
             util_list.append(min(1.0, util))
 
-            # ReworkPct (0–1): estimated rework time / total service time
+            # --- REWORK PCT (0–1) ---
             loop_counts = {
                 "Front Desk": metrics.loop_fd_insufficient,
                 "Nurse": metrics.loop_nurse_insufficient,
@@ -422,19 +425,19 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             rework_pct = (estimated_rework / max(1, total_service)) if total_service > 0 else 0.0
             rework_pct_list.append(min(1.0, rework_pct))
 
-            # QueuePressure (0–1): avg queue / capacity
-            avg_queue = np.mean(metrics.queues[role]) if len(metrics.queues[role]) > 0 else 0.0
-            queue_pressure = avg_queue / max(1, capacity)
-            queue_pressure_list.append(min(1.0, queue_pressure))
+            # --- QUEUE VOLATILITY (0–1): coefficient of variation of queue length ---
+            # Measures task switching / interruptions from variable workload
+            queue_lengths = metrics.queues[role]
+            if len(queue_lengths) > 1:
+                q_mean = np.mean(queue_lengths)
+                q_std = np.std(queue_lengths)
+                q_cv = (q_std / max(1e-6, q_mean)) if q_mean > 0 else 0.0
+                # Normalize: CV of 1.0 or higher = max volatility
+                queue_volatility_list.append(min(1.0, q_cv))
+            else:
+                queue_volatility_list.append(0.0)
 
-            # WaitInefficiency (0–1): avg wait / (avg wait + avg work)
-            avg_work = total_service / max(1, len(metrics.task_completion_time))
-            avg_wait = np.mean(metrics.waits[role]) if len(metrics.waits[role]) > 0 else 0.0
-            total_time = avg_work + avg_wait
-            wait_ineff = (avg_wait / max(1, total_time)) if total_time > 0 else 0.0
-            wait_inefficiency_list.append(min(1.0, wait_ineff))
-
-            # Same-day completion rate → Incompletion (0–1)
+            # --- SAME-DAY COMPLETION RATE (0–1) ---
             done_ids = set(metrics.task_completion_time.keys())
             if len(done_ids) > 0:
                 same_day = sum(
@@ -446,23 +449,70 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             else:
                 completion_rate_list.append(0.0)
 
-        # Averages across replications
+            # --- THROUGHPUT RATE (tasks/day) ---
+            tasks_completed = len(done_ids)
+            throughput_rate_list.append(tasks_completed / num_days)
+
+        # ============================================================
+        # Average metrics across replications
+        # ============================================================
         avg_util = float(np.mean(util_list)) if util_list else 0.0
         avg_rework = float(np.mean(rework_pct_list)) if rework_pct_list else 0.0
-        avg_queue_pressure = float(np.mean(queue_pressure_list)) if queue_pressure_list else 0.0
-        avg_wait_ineff = float(np.mean(wait_inefficiency_list)) if wait_inefficiency_list else 0.0
-        avg_incompletion = 1.0 - (float(np.mean(completion_rate_list)) if completion_rate_list else 0.0)
+        avg_queue_volatility = float(np.mean(queue_volatility_list)) if queue_volatility_list else 0.0
+        avg_completion_rate = float(np.mean(completion_rate_list)) if completion_rate_list else 0.0
+        avg_throughput = float(np.mean(throughput_rate_list)) if throughput_rate_list else 0.0
 
-        # AvailabilityStress (0–1) from minutes available per hour
+        # --- AVAILABILITY STRESS (0–1) ---
         avail_minutes = p.get("availability_per_hour", {}).get(role, 60)
         avail_stress = (60 - float(avail_minutes)) / 60.0
         avail_stress = min(max(avail_stress, 0.0), 1.0)
 
-        # ---- New subscales (no shared metrics) ----
-        EE = 100.0 * (0.70 * avg_util + 0.30 * avail_stress)                       # load + constraints
-        DP = 100.0 * (0.60 * avg_rework + 0.40 * avg_queue_pressure)               # quality friction
-        RA = 100.0 * (0.70 * avg_wait_ineff + 0.30 * avg_incompletion)             # outcomes + delays
+        # ============================================================
+        # NON-LINEAR TRANSFORMATIONS (threshold effects)
+        # ============================================================
+        # Utilization: exponential penalty above 0.75
+        # Below 75%: linear. Above 75%: accelerates rapidly
+        def transform_utilization(u):
+            if u <= 0.75:
+                return u / 0.75 * 0.5  # Maps 0-75% to 0-0.5
+            else:
+                # Exponential growth from 0.5 to 1.0 as u goes from 0.75 to 1.0
+                excess = (u - 0.75) / 0.25
+                return 0.5 + 0.5 * (np.exp(2 * excess) - 1) / (np.exp(2) - 1)
+        
+        util_transformed = transform_utilization(avg_util)
 
+        # Rework: quadratic penalty (small rework OK, large rework very bad)
+        rework_transformed = avg_rework ** 1.5  # Accelerates faster than linear
+
+        # Queue volatility: square root (diminishing returns at extremes)
+        volatility_transformed = np.sqrt(avg_queue_volatility)
+
+        # Incompletion: exponential penalty for low completion rates
+        # High completion = good (low burnout), low completion = very bad (high burnout)
+        incompletion = 1.0 - avg_completion_rate
+        incompletion_transformed = incompletion ** 0.7  # Slightly less than linear
+
+        # Throughput: normalize by expected throughput
+        # Low throughput = reduced accomplishment
+        expected_throughput = p["arrivals_per_hour_by_role"].get(role, 1) * open_time_available / 60.0 / num_days
+        throughput_ratio = avg_throughput / max(1e-6, expected_throughput)
+        throughput_deficit = max(0.0, 1.0 - throughput_ratio)  # 0 = meeting demand, 1 = no throughput
+        throughput_deficit = min(1.0, throughput_deficit)
+
+        # ============================================================
+        # BURNOUT SUBSCALES (non-overlapping dimensions)
+        # ============================================================
+        # EE: Workload intensity + time pressure
+        EE = 100.0 * (0.75 * util_transformed + 0.25 * avail_stress)
+
+        # DP: Quality friction + unpredictability
+        DP = 100.0 * (0.60 * rework_transformed + 0.40 * volatility_transformed)
+
+        # RA: Task completion + productivity
+        RA = 100.0 * (0.55 * incompletion_transformed + 0.45 * throughput_deficit)
+
+        # Overall burnout score (weighted by user priorities)
         burnout_score = w_ee * EE + w_dp * DP + w_ra * RA
 
         burnout_scores[role] = {
@@ -1358,12 +1408,15 @@ elif st.session_state.wizard_step == 2:
     # Help text below
     col1, col2 = st.columns(2)
     with col1:
-        help_icon("**Burnout Calculation (Simplified):**\n"
-                "• **Emotional Exhaustion (EE)** = 100 × (0.70×Utilization + 0.30×AvailabilityStress)\n"
-                "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct + 0.40×QueuePressure)\n"
-                "• **Reduced Accomplishment (RA)** = 100 × (0.70×WaitInefficiency + 0.30×Incompletion)\n\n"
-                "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
-                "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
+        help_icon("**Burnout Calculation:**\n"
+            "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
+            "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
+            "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
+            "  *ReworkPct uses quadratic penalty; QueueVolatility = task switching stress\n\n"
+            "• **Reduced Accomplishment (RA)** = 100 × (0.55×Incompletion* + 0.45×ThroughputDeficit)\n"
+            "  *Measures actual task completion vs. expected workload\n\n"
+            "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
+            "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
         help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
                  "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
     with col2:
