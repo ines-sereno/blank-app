@@ -786,7 +786,6 @@ def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List
     fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
     
     num_days = max(1, p["sim_minutes"] / DAY_MIN)
-    open_hours_per_day = p["open_minutes"] / 60.0
     
     overtime_lists = {r: [] for r in active_roles}
     
@@ -1073,6 +1072,30 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
         "throughput_full_df": throughput_full_df, "util_df": util_df, "summary_df": summary_df
     }
 
+def _excel_engine():
+    try:
+        import xlsxwriter
+        return "xlsxwriter"
+    except Exception:
+        try:
+            import openpyxl
+            return "openpyxl"
+        except Exception:
+            return None
+
+def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict:
+    if engine is None:
+        engine = _excel_engine()
+    
+    if engine:
+        bio = BytesIO()
+        with pd.ExcelWriter(bio, engine=engine) as xw:
+            events_df.to_excel(xw, index=False, sheet_name="RunLog")
+        return {"bytes": bio.getvalue(), "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "ext": "xlsx"}
+    else:
+        st.error("Excel export requires xlsxwriter or openpyxl")
+        return {"bytes": b"", "mime": "application/octet-stream", "ext": "xlsx"}
+
 # =============================
 # Streamlit UI
 # =============================
@@ -1115,30 +1138,6 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
     val = max(0.0, min(1.0, val))
     st.caption(f"{val:.2f}")
     return val
-
-def _excel_engine():
-    try:
-        import xlsxwriter
-        return "xlsxwriter"
-    except Exception:
-        try:
-            import openpyxl
-            return "openpyxl"
-        except Exception:
-            return None
-
-def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict:
-    if engine is None:
-        engine = _excel_engine()
-    
-    if engine:
-        bio = BytesIO()
-        with pd.ExcelWriter(bio, engine=engine) as xw:
-            events_df.to_excel(xw, index=False, sheet_name="RunLog")
-        return {"bytes": bio.getvalue(), "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "ext": "xlsx"}
-    else:
-        st.error("Excel export requires xlsxwriter or openpyxl")
-        return {"bytes": b"", "mime": "application/octet-stream", "ext": "xlsx"}
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
@@ -1199,10 +1198,10 @@ if st.session_state.wizard_step == 1:
         with st.expander("Front Desk", expanded=False):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
-                fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 2), 1, "%d", key="fd_cap_input",
+                fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
                                                            help="Number of front desk staff")
             with cFD2:
-                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 8), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
+                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 4), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
                                          help="Average number of tasks per hour")
             with cFD3:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 50), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
@@ -1211,13 +1210,13 @@ if st.session_state.wizard_step == 1:
         with st.expander("Nurse / MAs", expanded=False):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
-                nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
+                nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 3), 1, "%d", key="nurse_cap_input",
                                                               help="Number of nurses or medical assistants")
             with cNU2:
-                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 6), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
+                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 3), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
                                          help="Average number of tasks per hour")
             with cNU3:
-                avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 45), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
+                avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 50), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
                                            help="Minutes per hour available for work")
         
         with st.expander("Providers", expanded=False):
@@ -1226,19 +1225,19 @@ if st.session_state.wizard_step == 1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 2), 1, "%d", key="provider_cap_input",
                                                                  help="Number of providers")
             with cPR2:
-                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 4), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
+                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 2), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
                                          help="Average number of tasks per hour")
             with cPR3:
-                avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 40), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
+                avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 50), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
                                            help="Minutes per hour available for work")
         
         with st.expander("Back Office", expanded=False):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
-                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
+                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
                                                            help="Number of back office staff")
             with cBO2:
-                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 3), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
+                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
                                          help="Average number of tasks per hour")
             with cBO3:
                 avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 50), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
@@ -1270,13 +1269,13 @@ if st.session_state.wizard_step == 1:
             
             with st.expander("Front Desk", expanded=False):
                 st.markdown("**Service Time**")
-                svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 4.0), 0.5, disabled=(fd_cap_form==0),
+                svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
                                           help="Average time to complete a task")
                 
                 st.markdown("**Rework Loops**")
                 cFDL1, cFDL2, cFDL3 = st.columns(3)
                 with cFDL1:
-                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.10), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff")
+                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.08), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff")
                 with cFDL2:
                     max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops")
                 with cFDL3:
@@ -1291,15 +1290,15 @@ if st.session_state.wizard_step == 1:
                 st.markdown("**Service Times**")
                 cNS1, cNS2 = st.columns(2)
                 with cNS1:
-                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 3.0), 0.5, disabled=(nu_cap_form==0))
+                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0))
                     p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.30), 0.05, disabled=(nu_cap_form==0))
                 with cNS2:
-                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 6.0), 0.5, disabled=(nu_cap_form==0))
+                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 5.0), 0.5, disabled=(nu_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cNUL1, cNUL2 = st.columns(2)
                 with cNUL1:
-                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff")
+                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.06), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff")
                 with cNUL2:
                     max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops")
                 
@@ -1310,12 +1309,12 @@ if st.session_state.wizard_step == 1:
             
             with st.expander("Providers", expanded=False):
                 st.markdown("**Service Time**")
-                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 8.0), 0.5, disabled=(pr_cap_form==0))
+                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 7.0), 0.5, disabled=(pr_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cPRL1, cPRL2, cPRL3 = st.columns(3)
                 with cPRL1:
-                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff")
+                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.05), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff")
                 with cPRL2:
                     max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops")
                 with cPRL3:
@@ -1328,12 +1327,12 @@ if st.session_state.wizard_step == 1:
             
             with st.expander("Back Office", expanded=False):
                 st.markdown("**Service Time**")
-                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 6.0), 0.5, disabled=(bo_cap_form==0))
+                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cBOL1, cBOL2, cBOL3 = st.columns(3)
                 with cBOL1:
-                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff")
+                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.04), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff")
                 with cBOL2:
                     max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops")
                 with cBOL3:
