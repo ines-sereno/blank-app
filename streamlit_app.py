@@ -1162,15 +1162,15 @@ if st.session_state.wizard_step == 1:
         cv_speed = cv_speed_map[cv_speed_label]
         st.caption(f"(Coefficient of Variation: {cv_speed})")
 
-        seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
-                               help="Seed for reproducibility")
         num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
                                           help="Number of independent simulation runs")
+        
+        seed = 42  # Fixed seed for reproducibility
 
         st.markdown("### Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
         
-        with st.expander("Front Desk", expanded=True):
+        with st.expander("Front Desk", expanded=False):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
                 fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
@@ -1182,7 +1182,7 @@ if st.session_state.wizard_step == 1:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
                                            help="Minutes per hour available for work")
         
-        with st.expander("Nurse / MAs", expanded=True):
+        with st.expander("Nurse / MAs", expanded=False):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
                 nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
@@ -1194,7 +1194,7 @@ if st.session_state.wizard_step == 1:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
                                            help="Minutes per hour available for work")
         
-        with st.expander("Providers", expanded=True):
+        with st.expander("Providers", expanded=False):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
@@ -1206,7 +1206,7 @@ if st.session_state.wizard_step == 1:
                 avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
                                            help="Minutes per hour available for work")
         
-        with st.expander("Back Office", expanded=True):
+        with st.expander("Back Office", expanded=False):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
                 bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
