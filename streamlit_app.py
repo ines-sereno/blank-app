@@ -9,7 +9,7 @@ from io import BytesIO
 from scipy import stats
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Patch
 
 # =============================
 # Utilities
@@ -34,12 +34,6 @@ def draw_service_time(role_for_dist, mean, dist_map, cv_task):
     dist = dist_map.get(role_for_dist, "exponential")
     base = normal_time(mean, cv=0.4) if dist == "normal" else exp_time(mean)
     return base * speed_multiplier_from_cv(cv_task)
-
-def pct(x):
-    try:
-        return f"{100*float(x):.1f}%"
-    except Exception:
-        return "0.0%"
 
 # =============================
 # Work schedule helpers
@@ -369,7 +363,6 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
       - RA: SameDayCompletion + TaskThroughput
     Each subscale maps to 0–100, then Overall uses user-defined weights.
     """
-    # Convert rankings to weights (1st=0.5, 2nd=0.3, 3rd=0.2)
     rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
     burnout_weights = p.get("burnout_weights", {"ee_rank": 1, "dp_rank": 2, "ra_rank": 3})
     w_ee = rank_to_weight[burnout_weights["ee_rank"]]
@@ -391,9 +384,6 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
         if capacity == 0:
             continue
 
-        # ============================================================
-        # Data collection across replications
-        # ============================================================
         util_list = []
         rework_pct_list = []
         queue_volatility_list = []
@@ -401,13 +391,13 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
         throughput_rate_list = []
 
         for metrics in all_metrics:
-            # --- UTILIZATION (0–1) ---
+            # Utilization (0–1)
             total_service = metrics.service_time_sum[role]
             denom = capacity * open_time_available
             util = total_service / max(1, denom)
             util_list.append(min(1.0, util))
 
-            # --- REWORK PCT (0–1) ---
+            # ReworkPct (0–1)
             loop_counts = {
                 "Front Desk": metrics.loop_fd_insufficient,
                 "Nurse": metrics.loop_nurse_insufficient,
@@ -425,19 +415,17 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             rework_pct = (estimated_rework / max(1, total_service)) if total_service > 0 else 0.0
             rework_pct_list.append(min(1.0, rework_pct))
 
-            # --- QUEUE VOLATILITY (0–1): coefficient of variation of queue length ---
-            # Measures task switching / interruptions from variable workload
+            # Queue Volatility (0–1)
             queue_lengths = metrics.queues[role]
             if len(queue_lengths) > 1:
                 q_mean = np.mean(queue_lengths)
                 q_std = np.std(queue_lengths)
                 q_cv = (q_std / max(1e-6, q_mean)) if q_mean > 0 else 0.0
-                # Normalize: CV of 1.0 or higher = max volatility
                 queue_volatility_list.append(min(1.0, q_cv))
             else:
                 queue_volatility_list.append(0.0)
 
-            # --- SAME-DAY COMPLETION RATE (0–1) ---
+            # Same-day completion rate (0–1)
             done_ids = set(metrics.task_completion_time.keys())
             if len(done_ids) > 0:
                 same_day = sum(
@@ -449,70 +437,45 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
             else:
                 completion_rate_list.append(0.0)
 
-            # --- THROUGHPUT RATE (tasks/day) ---
+            # Throughput rate (tasks/day)
             tasks_completed = len(done_ids)
             throughput_rate_list.append(tasks_completed / num_days)
 
-        # ============================================================
         # Average metrics across replications
-        # ============================================================
         avg_util = float(np.mean(util_list)) if util_list else 0.0
         avg_rework = float(np.mean(rework_pct_list)) if rework_pct_list else 0.0
         avg_queue_volatility = float(np.mean(queue_volatility_list)) if queue_volatility_list else 0.0
         avg_completion_rate = float(np.mean(completion_rate_list)) if completion_rate_list else 0.0
         avg_throughput = float(np.mean(throughput_rate_list)) if throughput_rate_list else 0.0
 
-        # --- AVAILABILITY STRESS (0–1) ---
+        # Availability stress (0–1)
         avail_minutes = p.get("availability_per_hour", {}).get(role, 60)
         avail_stress = (60 - float(avail_minutes)) / 60.0
         avail_stress = min(max(avail_stress, 0.0), 1.0)
 
-        # ============================================================
-        # NON-LINEAR TRANSFORMATIONS (threshold effects)
-        # ============================================================
-        # Utilization: exponential penalty above 0.75
-        # Below 75%: linear. Above 75%: accelerates rapidly
+        # Non-linear transformations
         def transform_utilization(u):
             if u <= 0.75:
-                return u / 0.75 * 0.5  # Maps 0-75% to 0-0.5
+                return u / 0.75 * 0.5
             else:
-                # Exponential growth from 0.5 to 1.0 as u goes from 0.75 to 1.0
                 excess = (u - 0.75) / 0.25
                 return 0.5 + 0.5 * (np.exp(2 * excess) - 1) / (np.exp(2) - 1)
         
         util_transformed = transform_utilization(avg_util)
-
-        # Rework: quadratic penalty (small rework OK, large rework very bad)
-        rework_transformed = avg_rework ** 1.5  # Accelerates faster than linear
-
-        # Queue volatility: square root (diminishing returns at extremes)
+        rework_transformed = avg_rework ** 1.5
         volatility_transformed = np.sqrt(avg_queue_volatility)
-
-        # Incompletion: exponential penalty for low completion rates
-        # High completion = good (low burnout), low completion = very bad (high burnout)
         incompletion = 1.0 - avg_completion_rate
-        incompletion_transformed = incompletion ** 0.7  # Slightly less than linear
-
-        # Throughput: normalize by expected throughput
-        # Low throughput = reduced accomplishment
+        incompletion_transformed = incompletion ** 0.7
         expected_throughput = p["arrivals_per_hour_by_role"].get(role, 1) * open_time_available / 60.0 / num_days
         throughput_ratio = avg_throughput / max(1e-6, expected_throughput)
-        throughput_deficit = max(0.0, 1.0 - throughput_ratio)  # 0 = meeting demand, 1 = no throughput
+        throughput_deficit = max(0.0, 1.0 - throughput_ratio)
         throughput_deficit = min(1.0, throughput_deficit)
 
-        # ============================================================
-        # BURNOUT SUBSCALES (non-overlapping dimensions)
-        # ============================================================
-        # EE: Workload intensity + time pressure
+        # Burnout subscales
         EE = 100.0 * (0.75 * util_transformed + 0.25 * avail_stress)
-
-        # DP: Quality friction + unpredictability
         DP = 100.0 * (0.60 * rework_transformed + 0.40 * volatility_transformed)
-
-        # RA: Task completion + productivity
         RA = 100.0 * (0.55 * incompletion_transformed + 0.45 * throughput_deficit)
 
-        # Overall burnout score (weighted by user priorities)
         burnout_score = w_ee * EE + w_dp * DP + w_ra * RA
 
         burnout_scores[role] = {
@@ -531,13 +494,11 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
 def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     """
     Bar chart showing utilization by role (mean ± SD across replications).
-    Utilization = actual work time / available capacity time
     """
     fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
     
     open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
     
-    # Calculate utilization for each role across replications
     util_lists = {r: [] for r in active_roles}
     
     for metrics in all_metrics:
@@ -550,40 +511,30 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
             }[role]
             
             if capacity > 0:
-                # Actual work time
                 total_service = metrics.service_time_sum[role]
-                
-                # Available capacity time (staff × open hours × availability)
                 avail_minutes = p.get("availability_per_hour", {}).get(role, 60)
                 available_capacity = capacity * open_time_available * (avail_minutes / 60.0)
-                
-                # Utilization = work / capacity (capped at 100%)
                 util = min(1.0, total_service / max(1, available_capacity))
                 util_lists[role].append(util)
     
-    # Calculate means and standard deviations
     means = [np.mean(util_lists[r]) * 100 for r in active_roles]
     stds = [np.std(util_lists[r]) * 100 for r in active_roles]
     
-    # Color bars by utilization level
     colors = []
     for mean_util in means:
         if mean_util < 50:
-            colors.append('#2ecc71')  # Green - Underutilized
+            colors.append('#2ecc71')
         elif mean_util < 75:
-            colors.append('#f39c12')  # Orange - Moderate
+            colors.append('#f39c12')
         elif mean_util < 90:
-            colors.append('#e67e22')  # Dark Orange - High
+            colors.append('#e67e22')
         else:
-            colors.append('#e74c3c')  # Red - Critical
+            colors.append('#e74c3c')
     
     x = np.arange(len(active_roles))
     bars = ax.bar(x, means, color=colors, alpha=0.8, width=0.6)
-    
-    # Add error bars
     ax.errorbar(x, means, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6)
     
-    # Add reference lines
     ax.axhline(y=75, color='orange', linestyle='--', alpha=0.4, linewidth=1.5, label='75% threshold')
     ax.axhline(y=90, color='red', linestyle='--', alpha=0.4, linewidth=1.5, label='90% critical')
     
@@ -596,7 +547,6 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     ax.legend(loc='upper right', fontsize=8)
     ax.grid(True, alpha=0.3, axis='y')
     
-    # Add value labels on bars
     for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height + 2,
@@ -606,148 +556,6 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     plt.tight_layout()
     return fig
 
-def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    """
-    Bar chart showing additional hours per day needed to complete all tasks.
-    Measures the gap between demand and capacity.
-    """
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
-    
-    num_days = max(1, p["sim_minutes"] / DAY_MIN)
-    open_hours_per_day = p["open_minutes"] / 60.0
-    
-    # Calculate overtime needed for each role across replications
-    overtime_lists = {r: [] for r in active_roles}
-    
-    for metrics in all_metrics:
-        for role in active_roles:
-            capacity = {
-                "Front Desk": p["frontdesk_cap"],
-                "Nurse": p["nurse_cap"],
-                "Providers": p["provider_cap"],
-                "Back Office": p["backoffice_cap"]
-            }[role]
-            
-            if capacity > 0:
-                # Total work time needed (minutes)
-                total_work_needed = metrics.service_time_sum[role]
-                
-                # Available capacity per day (minutes)
-                avail_minutes_per_hour = p.get("availability_per_hour", {}).get(role, 60)
-                capacity_per_day = capacity * p["open_minutes"] * (avail_minutes_per_hour / 60.0)
-                
-                # Total capacity available over simulation (minutes)
-                total_capacity_available = capacity_per_day * num_days
-                
-                # Overtime needed (minutes)
-                overtime_minutes = max(0, total_work_needed - total_capacity_available)
-                
-                # Convert to hours per day per person
-                if overtime_minutes > 0:
-                    overtime_hours_total = overtime_minutes / 60.0
-                    overtime_hours_per_day = overtime_hours_total / num_days
-                    overtime_hours_per_person = overtime_hours_per_day / capacity
-                else:
-                    overtime_hours_per_person = 0.0
-                
-                overtime_lists[role].append(overtime_hours_per_person)
-    
-    # Calculate means and standard deviations
-    means = [np.mean(overtime_lists[r]) for r in active_roles]
-    stds = [np.std(overtime_lists[r]) for r in active_roles]
-    
-    # Color bars by severity
-    colors = []
-    for mean_ot in means:
-        if mean_ot < 0.5:
-            colors.append('#2ecc71')  # Green - Manageable
-        elif mean_ot < 1.0:
-            colors.append('#f39c12')  # Orange - Moderate stress
-        elif mean_ot < 2.0:
-            colors.append('#e67e22')  # Dark Orange - High stress
-        else:
-            colors.append('#e74c3c')  # Red - Critical
-    
-    x = np.arange(len(active_roles))
-    bars = ax.bar(x, means, color=colors, alpha=0.8, width=0.6)
-    
-    # Add error bars
-    ax.errorbar(x, means, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6)
-    
-    # Add reference lines
-    ax.axhline(y=0.5, color='orange', linestyle='--', alpha=0.4, linewidth=1.5, label='0.5 hr/day')
-    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.4, linewidth=1.5, label='1.0 hr/day')
-    
-    ax.set_xlabel('Role', fontsize=10)
-    ax.set_ylabel('Additional Hours per Day per Person', fontsize=10)
-    ax.set_title('Overtime Needed to Clear Backlog', fontsize=11, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(active_roles, fontsize=9, rotation=15, ha='right')
-    ax.set_ylim(bottom=0)
-    ax.legend(loc='upper right', fontsize=8)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Add value labels on bars
-    for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
-        height = bar.get_height()
-        if height > 0.01:  # Only show label if meaningful
-            ax.text(bar.get_x() + bar.get_width()/2., height + max(0.05, std),
-                    f'{mean:.1f}h\n±{std:.1f}',
-                    ha='center', va='bottom', fontsize=8, fontweight='bold')
-        else:
-            ax.text(bar.get_x() + bar.get_width()/2., 0.05,
-                    '0.0h',
-                    ha='center', va='bottom', fontsize=8, fontweight='bold', color='gray')
-    
-    plt.tight_layout()
-    return fig
-
-def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, active_roles: List[str]):
-    """
-    Create a simple one-line banner showing key metrics.
-    """
-    # Calculate average turnaround time
-    turnaround_times = []
-    for metrics in all_metrics:
-        comp_times = metrics.task_completion_time
-        arr_times = metrics.task_arrival_time
-        done_ids = set(comp_times.keys())
-        
-        if len(done_ids) > 0:
-            tt = [comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids]
-            turnaround_times.extend(tt)
-    
-    avg_turnaround = np.mean(turnaround_times) if turnaround_times else 0.0
-    
-    # Get burnout metrics (averaged across all roles)
-    all_ee = [burnout_data["by_role"][r]["emotional_exhaustion"] for r in active_roles]
-    all_dp = [burnout_data["by_role"][r]["depersonalization"] for r in active_roles]
-    all_ra = [burnout_data["by_role"][r]["reduced_accomplishment"] for r in active_roles]
-    
-    avg_ee = np.mean(all_ee) if all_ee else 0.0
-    avg_dp = np.mean(all_dp) if all_dp else 0.0
-    avg_ra = np.mean(all_ra) if all_ra else 0.0
-    overall_burnout = burnout_data["overall_clinic"]
-    
-    # Create simple metric row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    with col1:
-        st.metric("⏱️ Avg Turnaround", f"{avg_turnaround:.0f} min", 
-                 delta=f"{avg_turnaround/60:.1f} hrs", delta_color="off")
-    
-    with col2:
-        st.metric("🔥 Overall Burnout", f"{overall_burnout:.1f}")
-    
-    with col3:
-        st.metric("😰 Emotional Exhaustion", f"{avg_ee:.1f}")
-    
-    with col4:
-        st.metric("😤 Depersonalization", f"{avg_dp:.1f}")
-    
-    with col5:
-        st.metric("😔 Reduced Accomplishment", f"{avg_ra:.1f}")
-
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
@@ -755,7 +563,6 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     open_minutes = p["open_minutes"]
     
-    # Calculate end-of-day queue lengths for each role
     end_of_day_queues = {role: [] for role in active_roles}
     
     for role in active_roles:
@@ -763,10 +570,8 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
         for metrics in all_metrics:
             role_daily = []
             for day in range(num_days):
-                # Find the queue length at the END of open hours for this day
                 end_of_open_time = day * DAY_MIN + open_minutes
                 
-                # Find the timestamp closest to this time
                 if len(metrics.time_stamps) > 0:
                     closest_idx = min(range(len(metrics.time_stamps)), 
                                     key=lambda i: abs(metrics.time_stamps[i] - end_of_open_time))
@@ -775,14 +580,12 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
                     role_daily.append(0)
             daily_queues.append(role_daily)
         
-        # Average across replications
         if daily_queues:
             daily_array = np.array(daily_queues)
             mean_daily = np.mean(daily_array, axis=0)
             std_daily = np.std(daily_array, axis=0)
             end_of_day_queues[role] = (mean_daily, std_daily)
     
-    # Create grouped bar chart
     x = np.arange(num_days)
     width = 0.8 / len(active_roles)
     
@@ -792,7 +595,6 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
         ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
                alpha=0.8, yerr=std_daily, capsize=3)
     
-    # Add vertical lines to separate days
     for day in range(1, num_days):
         ax.axvline(x=day - 0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
     
@@ -810,14 +612,12 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
 def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     
-    # Calculate completions by day
     daily_data = []
     
     for d in range(num_days):
         start_t = d * DAY_MIN
         end_t = start_t + p["open_minutes"]
         
-        # Get completions for this day across all replications
         day_totals = []
         for metrics in all_metrics:
             completed = sum(1 for ct in metrics.task_completion_time.values() if start_t <= ct < end_t)
@@ -863,13 +663,10 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     x = np.arange(len(active_roles))
     width = 0.6
     
-    # Plot bars
     bars1 = ax.bar(x, original_means, width, label='Original Work', color='#3498db')
     bars2 = ax.bar(x, rework_means, width, bottom=original_means, label='Rework', color='#e74c3c')
     
-    # Add error bars for total (original + rework)
     total_means = [original_means[i] + rework_means[i] for i in range(len(active_roles))]
-    # Calculate combined standard deviation (assuming independence)
     total_stds = [np.sqrt(original_stds[i]**2 + rework_stds[i]**2) for i in range(len(active_roles))]
     
     ax.errorbar(x, total_means, yerr=total_stds, fmt='none', ecolor='black', capsize=5, alpha=0.6, linewidth=1.5)
@@ -886,7 +683,6 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
         total = orig + rew
         if total > 0 and rew > 0:
             pct = 100 * rew / total
-            # Position label above error bar
             label_height = total + total_stds[i] + 20
             ax.text(i, label_height, f'{pct:.1f}%', ha='center', va='bottom', fontsize=8)
     
@@ -895,22 +691,17 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
 
 def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     """
-    Bar chart showing burnout scores by role + overall clinic.
-    Color-coded by severity with error bars showing variation across roles.
+    Bar chart showing burnout scores by role + overall clinic with error bars.
     """
     fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
     
     roles_plot = active_roles + ["Overall Clinic"]
     
-    # Get scores for each role
     role_scores = [burnout_data["by_role"][r]["overall"] for r in active_roles]
     role_scores.append(burnout_data["overall_clinic"])
     
-    # For individual roles, we can show the SD of the subscales as a proxy for uncertainty
-    # For overall clinic, show the SD across roles
     stds = []
     for role in active_roles:
-        # Standard deviation of the three subscales for this role
         subscales = [
             burnout_data["by_role"][role]["emotional_exhaustion"],
             burnout_data["by_role"][role]["depersonalization"],
@@ -918,45 +709,39 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
         ]
         stds.append(np.std(subscales))
     
-    # For overall clinic, use SD across roles
-    stds.append(np.std(role_scores[:-1]))  # SD of all role scores (excluding overall itself)
+    stds.append(np.std(role_scores[:-1]))
     
-    # Color by severity
     colors = []
     for score in role_scores:
         if score < 25:
-            colors.append('#2ecc71')  # Green - Low
+            colors.append('#2ecc71')
         elif score < 50:
-            colors.append('#f39c12')  # Orange - Moderate
+            colors.append('#f39c12')
         elif score < 75:
-            colors.append('#e67e22')  # Dark Orange - High
+            colors.append('#e67e22')
         else:
-            colors.append('#e74c3c')  # Red - Severe
+            colors.append('#e74c3c')
     
     x = np.arange(len(roles_plot))
     bars = ax.bar(x, role_scores, color=colors, width=0.6)
     
-    # Add error bars
     ax.errorbar(x, role_scores, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6, linewidth=1.5)
     
     ax.set_xlabel('Role', fontsize=10)
     ax.set_ylabel('Burnout Score (0-100)', fontsize=10)
-    ax.set_title('Burnout Index by Role (MBI-based)', fontsize=11, fontweight='bold')
+    ax.set_title('Burnout Index by Role', fontsize=11, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(roles_plot, fontsize=9, rotation=15, ha='right')
     ax.set_ylim(0, 100)
     ax.axhline(y=50, color='red', linestyle='--', alpha=0.3, linewidth=1)
     ax.grid(True, alpha=0.3, axis='y')
     
-    # Add value labels
     for i, (bar, score, std) in enumerate(zip(bars, role_scores, stds)):
         height = bar.get_height()
         label_height = height + std + 2
         ax.text(bar.get_x() + bar.get_width()/2., label_height,
                 f'{score:.1f}', ha='center', va='bottom', fontsize=8, fontweight='bold')
     
-    # Legend
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#2ecc71', label='Low (0-25)'),
         Patch(facecolor='#f39c12', label='Moderate (25-50)'),
@@ -968,8 +753,132 @@ def plot_burnout_scores(burnout_data: Dict, active_roles: List[str]):
     plt.tight_layout()
     return fig
 
+def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    """
+    Bar chart showing additional hours per day needed to complete all tasks.
+    """
+    fig, ax = plt.subplots(figsize=(6, 3), dpi=80)
+    
+    num_days = max(1, p["sim_minutes"] / DAY_MIN)
+    open_hours_per_day = p["open_minutes"] / 60.0
+    
+    overtime_lists = {r: [] for r in active_roles}
+    
+    for metrics in all_metrics:
+        for role in active_roles:
+            capacity = {
+                "Front Desk": p["frontdesk_cap"],
+                "Nurse": p["nurse_cap"],
+                "Providers": p["provider_cap"],
+                "Back Office": p["backoffice_cap"]
+            }[role]
+            
+            if capacity > 0:
+                total_work_needed = metrics.service_time_sum[role]
+                avail_minutes_per_hour = p.get("availability_per_hour", {}).get(role, 60)
+                capacity_per_day = capacity * p["open_minutes"] * (avail_minutes_per_hour / 60.0)
+                total_capacity_available = capacity_per_day * num_days
+                overtime_minutes = max(0, total_work_needed - total_capacity_available)
+                
+                if overtime_minutes > 0:
+                    overtime_hours_total = overtime_minutes / 60.0
+                    overtime_hours_per_day = overtime_hours_total / num_days
+                    overtime_hours_per_person = overtime_hours_per_day / capacity
+                else:
+                    overtime_hours_per_person = 0.0
+                
+                overtime_lists[role].append(overtime_hours_per_person)
+    
+    means = [np.mean(overtime_lists[r]) for r in active_roles]
+    stds = [np.std(overtime_lists[r]) for r in active_roles]
+    
+    colors = []
+    for mean_ot in means:
+        if mean_ot < 0.5:
+            colors.append('#2ecc71')
+        elif mean_ot < 1.0:
+            colors.append('#f39c12')
+        elif mean_ot < 2.0:
+            colors.append('#e67e22')
+        else:
+            colors.append('#e74c3c')
+    
+    x = np.arange(len(active_roles))
+    bars = ax.bar(x, means, color=colors, alpha=0.8, width=0.6)
+    
+    ax.errorbar(x, means, yerr=stds, fmt='none', ecolor='black', capsize=5, alpha=0.6)
+    
+    ax.axhline(y=0.5, color='orange', linestyle='--', alpha=0.4, linewidth=1.5, label='0.5 hr/day')
+    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.4, linewidth=1.5, label='1.0 hr/day')
+    
+    ax.set_xlabel('Role', fontsize=10)
+    ax.set_ylabel('Additional Hours per Day per Person', fontsize=10)
+    ax.set_title('Overtime Needed to Clear Backlog', fontsize=11, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(active_roles, fontsize=9, rotation=15, ha='right')
+    ax.set_ylim(bottom=0)
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
+        height = bar.get_height()
+        if height > 0.01:
+            ax.text(bar.get_x() + bar.get_width()/2., height + max(0.05, std),
+                    f'{mean:.1f}h\n±{std:.1f}',
+                    ha='center', va='bottom', fontsize=8, fontweight='bold')
+        else:
+            ax.text(bar.get_x() + bar.get_width()/2., 0.05,
+                    '0.0h',
+                    ha='center', va='bottom', fontsize=8, fontweight='bold', color='gray')
+    
+    plt.tight_layout()
+    return fig
+
+def create_kpi_banner(all_metrics: List[Metrics], p: Dict, burnout_data: Dict, active_roles: List[str]):
+    """
+    Create a simple one-line banner showing key metrics.
+    """
+    turnaround_times = []
+    for metrics in all_metrics:
+        comp_times = metrics.task_completion_time
+        arr_times = metrics.task_arrival_time
+        done_ids = set(comp_times.keys())
+        
+        if len(done_ids) > 0:
+            tt = [comp_times[k] - arr_times.get(k, comp_times[k]) for k in done_ids]
+            turnaround_times.extend(tt)
+    
+    avg_turnaround = np.mean(turnaround_times) if turnaround_times else 0.0
+    
+    all_ee = [burnout_data["by_role"][r]["emotional_exhaustion"] for r in active_roles]
+    all_dp = [burnout_data["by_role"][r]["depersonalization"] for r in active_roles]
+    all_ra = [burnout_data["by_role"][r]["reduced_accomplishment"] for r in active_roles]
+    
+    avg_ee = np.mean(all_ee) if all_ee else 0.0
+    avg_dp = np.mean(all_dp) if all_dp else 0.0
+    avg_ra = np.mean(all_ra) if all_ra else 0.0
+    overall_burnout = burnout_data["overall_clinic"]
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("Avg Turnaround", f"{avg_turnaround:.0f} min", 
+                 delta=f"{avg_turnaround/60:.1f} hrs", delta_color="off")
+    
+    with col2:
+        st.metric("Overall Burnout", f"{overall_burnout:.1f}")
+    
+    with col3:
+        st.metric("Emotional Exhaustion", f"{avg_ee:.1f}")
+    
+    with col4:
+        st.metric("Depersonalization", f"{avg_dp:.1f}")
+    
+    with col5:
+        st.metric("Reduced Accomplishment", f"{avg_ra:.1f}")
+
 def help_icon(help_text: str):
-    with st.expander("ℹ️ How is this calculated?"):
+    with st.expander("How is this calculated?"):
         st.caption(help_text)
 
 def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: List[str]):
@@ -1141,7 +1050,7 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
 # =============================
 # Streamlit UI
 # =============================
-st.set_page_config(page_title="HSyE Burnout Grant - DES Model for Community Health Centers", layout="wide")
+st.set_page_config(page_title="HSyE Burnout Grant - DES Model", layout="wide")
 st.title("HSyE Burnout Grant - DES Model for Community Health Centers")
 st.caption("By Ines Sereno")
 
@@ -1207,9 +1116,8 @@ def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
-    st.markdown("### 🏥 **Design Your Clinic**")
+    st.markdown("### Design Your Clinic")
     
-    # Define route_row_ui function BEFORE the form
     def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False, 
                      fd_cap_val: int = 0, nu_cap_val: int = 0, pr_cap_val: int = 0, bo_cap_val: int = 0) -> Dict[str, float]:
         current_cap_map = {"Front Desk": fd_cap_val, "Nurse": nu_cap_val, "Providers": pr_cap_val, "Back Office": bo_cap_val}
@@ -1233,18 +1141,17 @@ if st.session_state.wizard_step == 1:
     with st.form("design_form", clear_on_submit=False):
         st.markdown("### Simulation horizon & variability")
         sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
-                                   help="Number of clinic operating days to simulate. More days = more stable results but longer runtime")
+                                   help="Number of clinic operating days to simulate")
         open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 10), 1, "%d",
-                                      help="Number of hours the clinic is open each day (e.g., 8am-6pm = 10 hours)")
+                                      help="Number of hours the clinic is open each day")
 
         cv_speed_label = st.select_slider(
             "Task speed variability",
             options=["Very Low", "Low", "Moderate", "High", "Very High"],
             value=_init_ss("cv_speed_label", "Moderate"),
-            help="How much variation is there in how long tasks take? Very Low = everyone works at nearly the same speed. Very High = some tasks finish much faster/slower than average"
+            help="Variation in task completion times"
         )
         
-        # Map Likert scale to CV values
         cv_speed_map = {
             "Very Low": 0.1,
             "Low": 0.2,
@@ -1256,189 +1163,161 @@ if st.session_state.wizard_step == 1:
         st.caption(f"(Coefficient of Variation: {cv_speed})")
 
         seed = st.number_input("Random seed", 0, 999999, _init_ss("seed", 42), 1, "%d", 
-                               help="Seed for reproducibility. Same seed = same results")
+                               help="Seed for reproducibility")
         num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
-                                          help="Number of independent simulation runs to average over. More replications = more stable results but longer runtime")
+                                          help="Number of independent simulation runs")
 
-        st.markdown("### 👥 Role Configuration")
+        st.markdown("### Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
         
-        
-        # Front Desk
-        with st.expander("🏢 Front Desk", expanded=True):
+        with st.expander("Front Desk", expanded=True):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
                 fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
-                                                           help="Number of front desk staff on duty who handle check-ins, scheduling, and administrative tasks")
+                                                           help="Number of front desk staff")
             with cFD2:
                 arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 5), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
-                                         help="Average number of tasks arriving at Front Desk per hour (e.g., check-ins, phone calls)")
+                                         help="Average number of tasks per hour")
             with cFD3:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 45), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
-                                           help="Minutes per hour that front desk staff are available for work (60 = always available, 45 = 75% available due to breaks, meetings, etc.)")
+                                           help="Minutes per hour available for work")
         
-        # Nurse / MAs
-        with st.expander("💉 Nurse / MAs", expanded=True):
+        with st.expander("Nurse / MAs", expanded=True):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
                 nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 2), 1, "%d", key="nurse_cap_input",
-                                                              help="Number of nurses or medical assistants on duty who handle triage, vitals, and patient prep")
+                                                              help="Number of nurses or medical assistants")
             with cNU2:
                 arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 10), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
-                                         help="Average number of tasks arriving directly at Nurses per hour (e.g., triage requests, prescription refills)")
+                                         help="Average number of tasks per hour")
             with cNU3:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 20), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
-                                           help="Minutes per hour that nurses are available for work (lower values simulate interruptions, charting time, etc.)")
+                                           help="Minutes per hour available for work")
         
-        # Providers
-        with st.expander("👨‍⚕️ Providers", expanded=True):
+        with st.expander("Providers", expanded=True):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 1), 1, "%d", key="provider_cap_input",
-                                                                 help="Number of providers (doctors, NPs, PAs) on duty who see patients and make medical decisions")
+                                                                 help="Number of providers")
             with cPR2:
                 arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 3), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
-                                         help="Average number of tasks arriving directly at Providers per hour (e.g., direct consultations)")
+                                         help="Average number of tasks per hour")
             with cPR3:
                 avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 30), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
-                                           help="Minutes per hour that providers are available for patient-facing work (accounts for charting, calls, etc.)")
+                                           help="Minutes per hour available for work")
         
-        # Back Office
-        with st.expander("📋 Back Office", expanded=True):
+        with st.expander("Back Office", expanded=True):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
                 bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 1), 1, "%d", key="bo_cap_input",
-                                                           help="Number of back office staff on duty who handle billing, insurance, follow-up calls, and administrative work")
+                                                           help="Number of back office staff")
             with cBO2:
                 arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
-                                         help="Average number of tasks arriving directly at Back Office per hour (e.g., insurance claims, billing questions)")
+                                         help="Average number of tasks per hour")
             with cBO3:
                 avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 45), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
-                                           help="Minutes per hour that back office staff are available for work")
+                                           help="Minutes per hour available for work")
 
-        with st.expander("⚙️ Advanced Settings – Service times, loops & routing", expanded=False):
+        with st.expander("Advanced Settings – Service times, loops & routing", expanded=False):
             
             st.markdown("### Burnout Priority Weights")
             st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
             cB1, cB2, cB3 = st.columns(3)
             with cB1:
                 ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank",
-                                      help="Rank importance of Emotional Exhaustion (workload intensity, time pressure, availability constraints)")
+                                      help="Rank importance of Emotional Exhaustion")
             with cB2:
                 dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank",
-                                      help="Rank importance of Depersonalization (rework, quality issues, queue pressure)")
+                                      help="Rank importance of Depersonalization")
             with cB3:
                 ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank",
-                                      help="Rank importance of Reduced Accomplishment (delays, incomplete work, inefficiency)")
+                                      help="Rank importance of Reduced Accomplishment")
 
-            # Validate rankings
             ranks = [ee_rank, dp_rank, ra_rank]
             if len(set(ranks)) != 3:
-                st.error("⚠️ Each dimension must have a unique rank (1, 2, or 3). Please assign each rank exactly once.")
+                st.error("Each dimension must have a unique rank (1, 2, or 3)")
             else:
-                # Show the weights that will be applied
                 rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
-                st.success(f"✓ Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
+                st.success(f"Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
             
             st.markdown("---")
             
-            # Front Desk
-            with st.expander("🏢 Front Desk", expanded=False):
+            with st.expander("Front Desk", expanded=False):
                 st.markdown("**Service Time**")
                 svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
-                                          help="Average time (minutes) for front desk to complete a task")
+                                          help="Average time to complete a task")
                 
                 st.markdown("**Rework Loops**")
                 cFDL1, cFDL2, cFDL3 = st.columns(3)
                 with cFDL1:
-                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff",
-                                            help="Probability that front desk encounters missing information requiring rework")
+                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.15), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff")
                 with cFDL2:
-                    max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops",
-                                                   help="Maximum number of rework loops before giving up")
+                    max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops")
                 with cFDL3:
-                    fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=(fd_cap_form==0), key="fd_delay",
-                                              help="Time delay (minutes) before starting rework loop")
+                    fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=(fd_cap_form==0), key="fd_delay")
                 
                 st.markdown("**Routing: Where tasks go after Front Desk**")
                 fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Providers": 0.10, "Back Office": 0.10, DONE: 0.30}, 
                                        disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
-            # Nurse / MAs
-            with st.expander("💉 Nurse / MAs", expanded=False):
+            with st.expander("Nurse / MAs", expanded=False):
                 st.markdown("**Service Times**")
                 cNS1, cNS2 = st.columns(2)
                 with cNS1:
-                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0),
-                                                    help="Average time (minutes) when nurse resolves task via protocol without provider")
-                    p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=(nu_cap_form==0),
-                                          help="Probability that a nurse can resolve a task using standing protocols without provider involvement")
+                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0))
+                    p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.40), 0.05, disabled=(nu_cap_form==0))
                 with cNS2:
-                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=(nu_cap_form==0),
-                                         help="Average time (minutes) for nurse tasks that don't use protocol")
+                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 4.0), 0.5, disabled=(nu_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cNUL1, cNUL2 = st.columns(2)
                 with cNUL1:
-                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff",
-                                               help="Probability that nurse needs to send task back to front desk for more info")
+                    p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.10), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff")
                 with cNUL2:
-                    max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops",
-                                                      help="Maximum number of nurse rework loops before giving up")
+                    max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops")
                 
                 st.markdown("**Routing: Where tasks go after Nurse**")
                 nu_route = route_row_ui("Nurse", {"Providers": 0.40, "Back Office": 0.20, DONE: 0.40}, 
                                        disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
-            # Providers
-            with st.expander("👨‍⚕️ Providers", expanded=False):
+            with st.expander("Providers", expanded=False):
                 st.markdown("**Service Time**")
-                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=(pr_cap_form==0),
-                                        help="Average time (minutes) for provider to see a patient or complete a task")
+                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 6.0), 0.5, disabled=(pr_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cPRL1, cPRL2, cPRL3 = st.columns(3)
                 with cPRL1:
-                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff",
-                                                  help="Probability that provider task needs rework (unclear orders, missing info, etc.)")
+                    p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.08), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff")
                 with cPRL2:
-                    max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops",
-                                                        help="Maximum number of provider rework loops before giving up")
+                    max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops")
                 with cPRL3:
-                    provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay",
-                                                    help="Time delay (minutes) before provider rework")
+                    provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay")
                 
                 st.markdown("**Routing: Where tasks go after Providers**")
                 pr_route = route_row_ui("Providers", {"Back Office": 0.30, DONE: 0.70}, 
                                        disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
-            # Back Office
-            with st.expander("📋 Back Office", expanded=False):
+            with st.expander("Back Office", expanded=False):
                 st.markdown("**Service Time**")
-                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0),
-                                           help="Average time (minutes) for back office to complete a task (billing, insurance, etc.)")
+                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cBOL1, cBOL2, cBOL3 = st.columns(3)
                 with cBOL1:
-                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff",
-                                                    help="Probability that back office task needs rework (billing errors, missing documentation)")
+                    p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.05), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff")
                 with cBOL2:
-                    max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops",
-                                                          help="Maximum number of back office rework loops before giving up")
+                    max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops")
                 with cBOL3:
-                    backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=(bo_cap_form==0), key="bo_delay",
-                                                      help="Time delay (minutes) before back office rework")
+                    backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=(bo_cap_form==0), key="bo_delay")
                 
                 st.markdown("**Routing: Where tasks go after Back Office**")
                 bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
                                        disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
             
-            # Build the route dictionary
             route: Dict[str, Dict[str, float]] = {}
             route["Front Desk"] = fd_route
             route["Nurse"] = nu_route
@@ -1448,7 +1327,6 @@ if st.session_state.wizard_step == 1:
         saved = st.form_submit_button("Save", type="primary")
 
         if saved:
-            # Save capacity values to session state
             st.session_state.fd_cap = fd_cap_form
             st.session_state.nurse_cap = nu_cap_form
             st.session_state.provider_cap = pr_cap_form
@@ -1489,21 +1367,20 @@ if st.session_state.wizard_step == 1:
                 p_protocol=p_protocol, route_matrix=route
             )
             st.session_state.design_saved = True
-            st.success("✅ Configuration saved successfully!")
+            st.success("Configuration saved successfully")
 
-    # Show run button after save
     if st.session_state.design_saved:
-        if st.button("▶️ Run Simulation", type="primary", use_container_width=True):
+        if st.button("Run Simulation", type="primary", use_container_width=True):
             st.session_state.wizard_step = 2
             st.rerun()
         
 # -------- STEP 2: RUN & RESULTS --------
 elif st.session_state.wizard_step == 2:
-    st.markdown("## ⚙️ Running Simulation...")
+    st.markdown("## Running Simulation...")
     st.button("← Back to Design", on_click=go_back)
 
     if not st.session_state["design"]:
-        st.info("Use **Save** on Step 1 first.")
+        st.info("Use Save on Step 1 first.")
         st.session_state.wizard_step = 1
         st.rerun()
 
@@ -1511,10 +1388,8 @@ elif st.session_state.wizard_step == 2:
     seed = p.get("seed", 42)
     num_replications = p.get("num_replications", 30)
     
-    # Show what's being run
-    st.info(f"🎲 Seed: {seed} | 🔄 Replications: {num_replications} | 📅 Days: {p['sim_minutes'] // DAY_MIN}")
+    st.info(f"Seed: {seed} | Replications: {num_replications} | Days: {p['sim_minutes'] // DAY_MIN}")
     
-    # Run simulation automatically
     active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
                         ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
     active_roles = [r for r, cap in active_roles_caps if cap > 0]
@@ -1529,7 +1404,7 @@ elif st.session_state.wizard_step == 2:
         all_metrics.append(metrics)
         progress_bar.progress((rep + 1) / num_replications)
     
-    status_text.text(f"✅ Completed {num_replications} replications!")
+    status_text.text(f"Completed {num_replications} replications")
     progress_bar.empty()
     
     agg_results = aggregate_replications(p, all_metrics, active_roles)
@@ -1543,7 +1418,6 @@ elif st.session_state.wizard_step == 2:
     util_df = agg_results["util_df"]
     summary_df = agg_results["summary_df"]
     
-    # Calculate burnout
     burnout_data = calculate_burnout(all_metrics, p, active_roles)
     
     all_events_data = []
@@ -1557,22 +1431,16 @@ elif st.session_state.wizard_step == 2:
             })
     events_df = pd.DataFrame(all_events_data)
     
-    # ── RENDER ─────────────────────────────────────────────────────────
-    st.markdown(f"## 📊 Simulation Results")
+    st.markdown(f"## Simulation Results")
     st.caption(f"Averaged over {num_replications} independent replications")
     
-    # KPI BANNER
     create_kpi_banner(all_metrics, p, burnout_data, active_roles)
     
     st.markdown("---")
     
-    # ============================================================
-    # SECTION 1: SYSTEM PERFORMANCE
-    # ============================================================
-    st.markdown("## 📈 System Performance")
+    st.markdown("## System Performance")
     st.caption("How well is the clinic handling incoming work?")
     
-    # Graphs side by side
     col1, col2 = st.columns(2)
     with col1:
         throughput_df = plot_daily_throughput(all_metrics, p, active_roles)
@@ -1583,24 +1451,19 @@ elif st.session_state.wizard_step == 2:
         st.pyplot(fig_queue, use_container_width=False)
         plt.close(fig_queue)
     
-    # Help text below graphs
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Calculation:** Counts tasks completed each day across replications. "
-                 "Line shows mean, shaded area is ±1 SD. **Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
+                 "**Interpretation:** Declining = falling behind; stable/increasing = keeping up.")
     with col2:
         help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
-                 "**Interpretation:** Persistent high queues = bottlenecks. Growing queues = can't keep up.")
+                 "**Interpretation:** Persistent high queues = bottlenecks.")
     
     st.markdown("---")
     
-    # ============================================================
-    # SECTION 2: BURNOUT & WORKLOAD INDICATORS
-    # ============================================================
-    st.markdown("## 🔥 Burnout & Workload Indicators")
+    st.markdown("## Burnout & Workload Indicators")
     st.caption("Which roles are at risk of being overwhelmed?")
-
-    # Top row: Burnout Index | Utilization
+    
     col1, col2 = st.columns(2)
     with col1:
         fig_burnout = plot_burnout_scores(burnout_data, active_roles)
@@ -1612,7 +1475,6 @@ elif st.session_state.wizard_step == 2:
         st.pyplot(fig_utilization, use_container_width=False)
         plt.close(fig_utilization)
 
-    # Bottom row: Rework Impact | Overtime Needed
     col1, col2 = st.columns(2)
     with col1:
         fig_rework = plot_rework_impact(all_metrics, p, active_roles)
@@ -1624,44 +1486,43 @@ elif st.session_state.wizard_step == 2:
         st.pyplot(fig_overtime, use_container_width=False)
         plt.close(fig_overtime)
     
-    # Help text below
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Burnout Calculation (Refined):**\n"
-            "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
-            "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
-            "• **Depersonalization (DP)**    = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
-            "  *ReworkPct uses quadratic penalty; QueueVolatility = task switching stress\n\n"
-            "• **Reduced Accomplishment (RA)** = 100 × (0.55×Incompletion* + 0.45×ThroughputDeficit)\n"
-            "  *Measures actual task completion vs. expected workload\n\n"
-            "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
-            "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
+                "• **Emotional Exhaustion (EE)** = 100 × (0.75×Utilization* + 0.25×AvailabilityStress)\n"
+                "  *Non-linear: <75% utilization grows slowly, >75% accelerates rapidly\n\n"
+                "• **Depersonalization (DP)** = 100 × (0.60×ReworkPct* + 0.40×QueueVolatility)\n"
+                "  *ReworkPct uses quadratic penalty; QueueVolatility = task switching stress\n\n"
+                "• **Reduced Accomplishment (RA)** = 100 × (0.55×Incompletion* + 0.45×ThroughputDeficit)\n"
+                "  *Measures actual task completion vs. expected workload\n\n"
+                "**Overall = Your custom weights × (EE, DP, RA)**\n\n"
+                "**Interpretation:** 0–25 Low, 25–50 Moderate, 50–75 High, 75–100 Severe.")
     with col2:
         help_icon("**Calculation:** Utilization = (Actual work time) ÷ (Staff capacity × Open hours × Availability %)\n\n"
-             "Capped at 100% (can't exceed available time).\n\n"
-             "**Interpretation:**\n"
-             "• Green (<50%) = Underutilized / slack capacity\n"
-             "• Orange (50-75%) = Healthy workload\n"
-             "• Dark Orange (75-90%) = High stress zone\n"
-             "• Red (>90%) = Critical burnout risk\n\n"
-             "Error bars show variation across replications.")
+                 "Capped at 100% (can't exceed available time).\n\n"
+                 "**Interpretation:**\n"
+                 "• Green (<50%) = Underutilized\n"
+                 "• Orange (50-75%) = Healthy workload\n"
+                 "• Dark Orange (75-90%) = High stress\n"
+                 "• Red (>90%) = Critical burnout risk")
 
     col1, col2 = st.columns(2)
     with col1:
         help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
-             "**Interpretation:** High rework % = errors, missing info, poor handoffs. Rework drives burnout.")
+                 "**Interpretation:** High rework % = errors, missing info, poor handoffs.")
     with col2:
         help_icon("**Calculation:** (Total work needed - Available capacity) ÷ (Days × Staff count)\n\n"
-             "Measures additional hours per person per day needed to finish all tasks.\n\n"
-             "**Interpretation:**\n"
-             "• 0 hours = Keeping up with workload\n"
-             "• 0.5 hours = 30min overtime daily\n"
-             "• 1+ hours = Serious capacity shortage\n"
-             "• 2+ hours = Critical understaffing\n\n"
-             "This is unsustainable overtime leading to burnout.")
+                 "Measures additional hours per person per day needed to finish all tasks.\n\n"
+                 "**Interpretation:**\n"
+                 "• 0 hours = Keeping up with workload\n"
+                 "• 0.5 hours = 30min overtime daily\n"
+                 "• 1+ hours = Serious capacity shortage\n"
+                 "• 2+ hours = Critical understaffing")
+    
+    st.markdown("---")
 
-    st.markdown("## 💾 Download Data")
-    with st.spinner("Producing run log for download..."):
+    st.markdown("## Download Data")
+    with st.spinner("Producing run log..."):
         runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
     
     st.download_button("Download Run Log (Excel)", data=runlog_pkg["bytes"],
