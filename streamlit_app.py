@@ -582,7 +582,7 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     plt.tight_layout()
     return fig
 
-def plot_queue_trend_lines(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
@@ -622,15 +622,18 @@ def plot_queue_trend_lines(all_metrics: List[Metrics], p: Dict, active_roles: Li
     ax.set_xlabel('Operational Day', fontsize=11, fontweight='bold')
     ax.set_ylabel('Queue Length (end of day)', fontsize=11, fontweight='bold')
     ax.set_title('Queue Backlog Trends by Role', fontsize=12, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels([f'Day {i}' for i in x])
+    
+    if num_days > 0:
+        x_ticks = np.arange(1, num_days + 1)
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels([f'Day {i}' for i in x_ticks])
+    
     ax.legend(loc='best', fontsize=9, framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle=':')
     ax.set_ylim(bottom=0)
     
     plt.tight_layout()
     return fig
-
 def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     
