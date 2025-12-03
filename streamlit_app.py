@@ -582,14 +582,12 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     plt.tight_layout()
     return fig
 
-def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
-    fig, ax = plt.subplots(figsize=(6, 3), dpi=40)
+def plot_queue_trend_lines(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
     colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
     
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     open_minutes = p["open_minutes"]
-    
-    end_of_day_queues = {role: [] for role in active_roles}
     
     for role in active_roles:
         daily_queues = []
@@ -610,28 +608,26 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
             daily_array = np.array(daily_queues)
             mean_daily = np.mean(daily_array, axis=0)
             std_daily = np.std(daily_array, axis=0)
-            end_of_day_queues[role] = (mean_daily, std_daily)
+            
+            x = np.arange(1, num_days + 1)
+            
+            # Plot line with markers
+            ax.plot(x, mean_daily, color=colors.get(role, '#333333'), 
+                   linewidth=2.5, marker='o', markersize=7, label=role, alpha=0.9)
+            
+            # Add confidence band
+            ax.fill_between(x, mean_daily - std_daily, mean_daily + std_daily,
+                          color=colors.get(role, '#333333'), alpha=0.15)
     
-    x = np.arange(num_days)
-    width = 0.8 / len(active_roles)
-    
-    for i, role in enumerate(active_roles):
-        mean_daily, std_daily = end_of_day_queues[role]
-        offset = (i - len(active_roles)/2 + 0.5) * width
-        ax.bar(x + offset, mean_daily, width, label=role, color=colors.get(role, '#333333'), 
-               alpha=0.8, yerr=std_daily, capsize=3)
-    
-    for day in range(1, num_days):
-        ax.axvline(x=day - 0.5, color='gray', linestyle='--', alpha=0.3, linewidth=1)
-    
-    ax.set_xlabel('Operational Day', fontsize=10)
-    ax.set_ylabel('Queue Length (end of day)', fontsize=10)
-    ax.set_title('End-of-Day Queue Backlog', fontsize=11, fontweight='bold')
+    ax.set_xlabel('Operational Day', fontsize=11, fontweight='bold')
+    ax.set_ylabel('Queue Length (end of day)', fontsize=11, fontweight='bold')
+    ax.set_title('Queue Backlog Trends by Role', fontsize=12, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels([f'{i+1}' for i in range(num_days)])
-    ax.legend(loc='best', fontsize=8)
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.set_xticklabels([f'Day {i}' for i in x])
+    ax.legend(loc='best', fontsize=9, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle=':')
     ax.set_ylim(bottom=0)
+    
     plt.tight_layout()
     return fig
 
