@@ -1193,79 +1193,102 @@ if st.session_state.wizard_step == 1:
         return row
                          
     with st.form("design_form", clear_on_submit=False):
-    st.markdown("### Simulation horizon")
-    sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
+        st.markdown("### Simulation horizon")
+        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
                                help="Number of clinic operating days to simulate")
-    open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 8), 1, "%d",
+        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 8), 1, "%d",
                                   help="Number of hours the clinic is open each day")
     
-    seed = 42  # Fixed seed for reproducibility
+        seed = 42  # Fixed seed for reproducibility
 
         st.markdown("### Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
-        
+    
         with st.expander("Front Desk", expanded=False):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
                 fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
-                                                           help="Number of front desk staff")
+                                                       help="Number of front desk staff")
             with cFD2:
                 arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 4), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
-                                         help="Average number of tasks per hour")
+                                     help="Average number of tasks per hour")
             with cFD3:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 50), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
-                                           help="Minutes per hour available for work")
-        
+                                       help="Minutes per hour available for work")
+    
         with st.expander("Nurse / MAs", expanded=False):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
                 nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 3), 1, "%d", key="nurse_cap_input",
-                                                              help="Number of nurses or medical assistants")
+                                                          help="Number of nurses or medical assistants")
             with cNU2:
                 arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 3), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
-                                         help="Average number of tasks per hour")
+                                     help="Average number of tasks per hour")
             with cNU3:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 50), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
-                                           help="Minutes per hour available for work")
-        
+                                       help="Minutes per hour available for work")
+    
         with st.expander("Providers", expanded=False):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
                 pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 2), 1, "%d", key="provider_cap_input",
-                                                                 help="Number of providers")
+                                                             help="Number of providers")
             with cPR2:
                 arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 2), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
-                                         help="Average number of tasks per hour")
+                                     help="Average number of tasks per hour")
             with cPR3:
                 avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 50), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
-                                           help="Minutes per hour available for work")
-        
+                                       help="Minutes per hour available for work")
+    
         with st.expander("Back Office", expanded=False):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
                 bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
-                                                           help="Number of back office staff")
+                                                       help="Number of back office staff")
             with cBO2:
-                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
-                                         help="Average number of tasks per hour")
+                 arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
+                                     help="Average number of tasks per hour")
             with cBO3:
                 avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 50), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
-                                           help="Minutes per hour available for work")
+                                       help="Minutes per hour available for work")
+
+        st.markdown("### Simulation Settings")
+        st.caption("Configure variability and number of simulation runs")
+    
+        cv_speed_label = st.select_slider(
+            "Task speed variability",
+            options=["Very Low", "Low", "Moderate", "High", "Very High"],
+            value=_init_ss("cv_speed_label", "Moderate"),
+            help="Variation in task completion times"
+        )
+    
+        cv_speed_map = {
+            "Very Low": 0.1,
+            "Low": 0.2,
+            "Moderate": 0.3,
+            "High": 0.5,
+            "Very High": 0.7
+        }
+        cv_speed = cv_speed_map[cv_speed_label]
+        st.caption(f"(Coefficient of Variation: {cv_speed})")
+
+        num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
+                                      help="Number of independent simulation runs")
 
         with st.expander("Advanced Settings – Service times, loops & routing", expanded=False):
-            
+        
             st.markdown("### Burnout Priority Weights")
             st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
             cB1, cB2, cB3 = st.columns(3)
             with cB1:
                 ee_rank = st.selectbox("Emotional Exhaustion", [1, 2, 3], index=0, key="ee_rank",
-                                      help="Rank importance of Emotional Exhaustion")
+                                  help="Rank importance of Emotional Exhaustion")
             with cB2:
                 dp_rank = st.selectbox("Depersonalization", [1, 2, 3], index=1, key="dp_rank",
-                                      help="Rank importance of Depersonalization")
+                                  help="Rank importance of Depersonalization")
             with cB3:
                 ra_rank = st.selectbox("Reduced Accomplishment", [1, 2, 3], index=2, key="ra_rank",
-                                      help="Rank importance of Reduced Accomplishment")
+                                  help="Rank importance of Reduced Accomplishment")
 
             ranks = [ee_rank, dp_rank, ra_rank]
             if len(set(ranks)) != 3:
@@ -1273,14 +1296,14 @@ if st.session_state.wizard_step == 1:
             else:
                 rank_to_weight = {1: 0.5, 2: 0.3, 3: 0.2}
                 st.success(f"Weights will be: EE={rank_to_weight[ee_rank]:.1f}, DP={rank_to_weight[dp_rank]:.1f}, RA={rank_to_weight[ra_rank]:.1f}")
-            
+        
             st.markdown("---")
-            
+        
             with st.expander("Front Desk", expanded=False):
                 st.markdown("**Service Time**")
                 svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
-                                          help="Average time to complete a task")
-                
+                                      help="Average time to complete a task")
+            
                 st.markdown("**Rework Loops**")
                 cFDL1, cFDL2, cFDL3 = st.columns(3)
                 with cFDL1:
@@ -1289,12 +1312,12 @@ if st.session_state.wizard_step == 1:
                     max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops")
                 with cFDL3:
                     fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=(fd_cap_form==0), key="fd_delay")
-                
+            
                 st.markdown("**Routing: Where tasks go after Front Desk**")
                 fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Providers": 0.10, "Back Office": 0.10, DONE: 0.30}, 
-                                       disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
-                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
-            
+                                   disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                   pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
+        
             with st.expander("Nurse / MAs", expanded=False):
                 st.markdown("**Service Times**")
                 cNS1, cNS2 = st.columns(2)
@@ -1310,16 +1333,16 @@ if st.session_state.wizard_step == 1:
                     p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.06), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff")
                 with cNUL2:
                     max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops")
-                
+            
                 st.markdown("**Routing: Where tasks go after Nurse**")
                 nu_route = route_row_ui("Nurse", {"Providers": 0.40, "Back Office": 0.20, DONE: 0.40}, 
-                                       disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
-                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
-            
+                                   disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                   pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
+        
             with st.expander("Providers", expanded=False):
                 st.markdown("**Service Time**")
                 svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 7.0), 0.5, disabled=(pr_cap_form==0))
-                
+            
                 st.markdown("**Rework Loops**")
                 cPRL1, cPRL2, cPRL3 = st.columns(3)
                 with cPRL1:
@@ -1328,16 +1351,16 @@ if st.session_state.wizard_step == 1:
                     max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops")
                 with cPRL3:
                     provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay")
-                
+            
                 st.markdown("**Routing: Where tasks go after Providers**")
                 pr_route = route_row_ui("Providers", {"Back Office": 0.30, DONE: 0.70}, 
-                                       disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
-                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
-            
+                                   disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                   pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
+        
             with st.expander("Back Office", expanded=False):
                 st.markdown("**Service Time**")
                 svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0))
-                
+            
                 st.markdown("**Rework Loops**")
                 cBOL1, cBOL2, cBOL3 = st.columns(3)
                 with cBOL1:
@@ -1346,49 +1369,12 @@ if st.session_state.wizard_step == 1:
                     max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops")
                 with cBOL3:
                     backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=(bo_cap_form==0), key="bo_delay")
-                
+            
                 st.markdown("**Routing: Where tasks go after Back Office**")
                 bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
-                                       disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
-                                       pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
-
-            with st.expander("Back Office", expanded=False):
-            cBO1, cBO2, cBO3 = st.columns(3)
-            with cBO1:
-                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
-                                                           help="Number of back office staff")
-            with cBO2:
-                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
-                                         help="Average number of tasks per hour")
-            with cBO3:
-                avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 50), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
-                                           help="Minutes per hour available for work")
-
-            st.markdown("### Simulation Settings")
-            st.caption("Configure variability and number of simulation runs")
+                                   disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
+                                   pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
         
-            cv_speed_label = st.select_slider(
-                "Task speed variability",
-                options=["Very Low", "Low", "Moderate", "High", "Very High"],
-                value=_init_ss("cv_speed_label", "Moderate"),
-                help="Variation in task completion times"
-            )
-        
-            cv_speed_map = {
-                "Very Low": 0.1,
-                "Low": 0.2,
-                "Moderate": 0.3,
-                "High": 0.5,
-                "Very High": 0.7
-            }
-            cv_speed = cv_speed_map[cv_speed_label]
-            st.caption(f"(Coefficient of Variation: {cv_speed})")
-
-            num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
-                                              help="Number of independent simulation runs")
-
-        with st.expander("Advanced Settings – Service times, loops & routing", expanded=False):
-            
             route: Dict[str, Dict[str, float]] = {}
             route["Front Desk"] = fd_route
             route["Nurse"] = nu_route
