@@ -1307,7 +1307,6 @@ if st.session_state.wizard_step == 1:
             "Very High": 0.7
         }
         cv_speed = cv_speed_map[cv_speed_label]
-        st.caption(f"(Coefficient of Variation: {cv_speed})")
 
         num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
                                       help="Number of independent simulation runs")
