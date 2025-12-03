@@ -1521,7 +1521,7 @@ elif st.session_state.wizard_step == 2:
     with col2:
         help_icon("**Calculation:** Tracks tasks waiting in each queue every minute (mean ± SD). "
              "**Interpretation:** Persistent high queues = bottlenecks.",
-             title="How is End-of-Day Queue Backlog calculated?")
+             title="How is Queue Backlog Trend graph calculated?")
     
     st.markdown("---")
     
