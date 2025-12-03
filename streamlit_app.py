@@ -575,9 +575,20 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     
     for i, (bar, mean, std) in enumerate(zip(bars, means, stds)):
         height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + 2,
+        # Calculate label position - place inside bar if utilization is high, above if low
+        if height > 85:
+            # Place inside the bar for high utilization
+            label_y = height - 10
+            label_color = 'white'
+        else:
+            # Place above the bar for lower utilization
+            label_y = height + std + 3
+            label_color = 'black'
+    
+        ax.text(bar.get_x() + bar.get_width()/2., label_y,
                 f'{mean:.0f}%\n±{std:.0f}%',
-                ha='center', va='bottom', fontsize=8, fontweight='bold')
+                ha='center', va='top' if height > 85 else 'bottom', 
+                fontsize=8, fontweight='bold', color=label_color)
     
     plt.tight_layout()
     return fig
