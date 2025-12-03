@@ -1193,33 +1193,13 @@ if st.session_state.wizard_step == 1:
         return row
                          
     with st.form("design_form", clear_on_submit=False):
-        st.markdown("### Simulation horizon & variability")
-        sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
-                                   help="Number of clinic operating days to simulate")
-        open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 8), 1, "%d",
-                                      help="Number of hours the clinic is open each day")
-
-        cv_speed_label = st.select_slider(
-            "Task speed variability",
-            options=["Very Low", "Low", "Moderate", "High", "Very High"],
-            value=_init_ss("cv_speed_label", "Moderate"),
-            help="Variation in task completion times"
-        )
-        
-        cv_speed_map = {
-            "Very Low": 0.1,
-            "Low": 0.2,
-            "Moderate": 0.3,
-            "High": 0.5,
-            "Very High": 0.7
-        }
-        cv_speed = cv_speed_map[cv_speed_label]
-        st.caption(f"(Coefficient of Variation: {cv_speed})")
-
-        num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
-                                          help="Number of independent simulation runs")
-        
-        seed = 42  # Fixed seed for reproducibility
+    st.markdown("### Simulation horizon")
+    sim_days = st.number_input("Days to simulate", 1, 30, _init_ss("sim_days", 5), 1, "%d",
+                               help="Number of clinic operating days to simulate")
+    open_hours = st.number_input("Hours open per day", 1, 24, _init_ss("open_hours", 8), 1, "%d",
+                                  help="Number of hours the clinic is open each day")
+    
+    seed = 42  # Fixed seed for reproducibility
 
         st.markdown("### Role Configuration")
         st.caption("Configure staffing, arrivals, and availability for each role")
@@ -1371,6 +1351,43 @@ if st.session_state.wizard_step == 1:
                 bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
                                        disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                        pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
+
+            with st.expander("Back Office", expanded=False):
+            cBO1, cBO2, cBO3 = st.columns(3)
+            with cBO1:
+                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
+                                                           help="Number of back office staff")
+            with cBO2:
+                arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
+                                         help="Average number of tasks per hour")
+            with cBO3:
+                avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 50), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
+                                           help="Minutes per hour available for work")
+
+        st.markdown("### Simulation Settings")
+        st.caption("Configure variability and number of simulation runs")
+        
+        cv_speed_label = st.select_slider(
+            "Task speed variability",
+            options=["Very Low", "Low", "Moderate", "High", "Very High"],
+            value=_init_ss("cv_speed_label", "Moderate"),
+            help="Variation in task completion times"
+        )
+        
+        cv_speed_map = {
+            "Very Low": 0.1,
+            "Low": 0.2,
+            "Moderate": 0.3,
+            "High": 0.5,
+            "Very High": 0.7
+        }
+        cv_speed = cv_speed_map[cv_speed_label]
+        st.caption(f"(Coefficient of Variation: {cv_speed})")
+
+        num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
+                                          help="Number of independent simulation runs")
+
+        with st.expander("Advanced Settings – Service times, loops & routing", expanded=False):
             
             route: Dict[str, Dict[str, float]] = {}
             route["Front Desk"] = fd_route
