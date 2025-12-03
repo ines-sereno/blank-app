@@ -634,26 +634,64 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     
     plt.tight_layout()
     return fig
+    
 def plot_daily_throughput(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
+    open_minutes = p["open_minutes"]
     
     daily_data = []
     
     for d in range(num_days):
         start_t = d * DAY_MIN
-        end_t = start_t + p["open_minutes"]
+        end_t = start_t + open_minutes
         
         day_totals = []
+        tasks_over_1day = []
+        tasks_over_2days = []
+        
         for metrics in all_metrics:
+            # Tasks completed this day
             completed = sum(1 for ct in metrics.task_completion_time.values() if start_t <= ct < end_t)
             day_totals.append(completed)
+            
+            # Tasks still in system at end of this operational day (not completed yet)
+            in_system = [
+                task_id for task_id, arrival_time in metrics.task_arrival_time.items()
+                if arrival_time < end_t and (task_id not in metrics.task_completion_time or metrics.task_completion_time[task_id] >= end_t)
+            ]
+            
+            # Count how many are >1 working day old and >2 working days old
+            over_1day = 0
+            over_2days = 0
+            
+            for task_id in in_system:
+                arrival_time = metrics.task_arrival_time[task_id]
+                arrival_day = int(arrival_time // DAY_MIN)
+                current_day = d
+                days_in_system = current_day - arrival_day
+                
+                if days_in_system >= 1:
+                    over_1day += 1
+                if days_in_system >= 2:
+                    over_2days += 1
+            
+            tasks_over_1day.append(over_1day)
+            tasks_over_2days.append(over_2days)
         
         mean_total = np.mean(day_totals)
         std_total = np.std(day_totals, ddof=1) if len(day_totals) > 1 else 0.0
         
+        mean_over_1 = np.mean(tasks_over_1day)
+        std_over_1 = np.std(tasks_over_1day, ddof=1) if len(tasks_over_1day) > 1 else 0.0
+        
+        mean_over_2 = np.mean(tasks_over_2days)
+        std_over_2 = np.std(tasks_over_2days, ddof=1) if len(tasks_over_2days) > 1 else 0.0
+        
         daily_data.append({
             'Day': f'Day {d+1}',
-            'Tasks Completed': f'{mean_total:.1f} ± {std_total:.1f}'
+            'Tasks Completed': f'{mean_total:.1f} ± {std_total:.1f}',
+            'Tasks >1 Day Old': f'{mean_over_1:.1f} ± {std_over_1:.1f}',
+            'Tasks >2 Days Old': f'{mean_over_2:.1f} ± {std_over_2:.1f}'
         })
     
     df = pd.DataFrame(daily_data)
