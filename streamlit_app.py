@@ -1444,9 +1444,7 @@ elif st.session_state.wizard_step == 2:
     p = st.session_state["design"]
     seed = p.get("seed", 42)
     num_replications = p.get("num_replications", 30)
-    
-    st.info(f"Seed: {seed} | Replications: {num_replications} | Days: {p['sim_minutes'] // DAY_MIN}")
-    
+        
     active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
                         ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
     active_roles = [r for r, cap in active_roles_caps if cap > 0]
@@ -1489,7 +1487,6 @@ elif st.session_state.wizard_step == 2:
     events_df = pd.DataFrame(all_events_data)
     
     st.markdown(f"## Results")
-    st.caption(f"Averaged over {num_replications} independent replications")
     
     create_kpi_banner(all_metrics, p, burnout_data, active_roles)
     
