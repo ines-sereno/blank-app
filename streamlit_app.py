@@ -45,11 +45,11 @@ def is_open(t_min, open_minutes):
     return (t_min % DAY_MIN) < open_minutes
 
 def minutes_until_close(t_min, open_minutes):
-    return max(0.0, open_minutes - (t_min % DAY_MIN))
+    return max(0.0, open_minutes - (t_min % _MIN))
 
 def minutes_until_open(t_min, open_minutes):
-    t_mod = t_min % DAY_MIN
-    return 0.0 if t_mod < open_minutes else DAY_MIN - t_mod
+    t_mod = t_min % _MIN
+    return 0.0 if t_mod < open_minutes else _MIN - t_mod
 
 def effective_open_minutes(sim_minutes, open_minutes):
     full_days = int(sim_minutes // DAY_MIN)
@@ -637,7 +637,7 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     if num_days > 0:
         x_ticks = np.arange(1, num_days + 1)
         ax.set_xticks(x_ticks)
-        ax.set_xticklabels([f'Day {i}' for i in x_ticks])
+        ax.set_xticklabels([f'{i}' for i in x_ticks])
     
     ax.legend(loc='best', fontsize=9, framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle=':')
