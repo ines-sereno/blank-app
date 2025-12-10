@@ -1511,17 +1511,6 @@ elif st.session_state.wizard_step == 2:
     
     burnout_data = calculate_burnout(all_metrics, p, active_roles)
     
-    all_events_data = []
-    for rep_idx, metrics in enumerate(all_metrics):
-        for t, name, step, note, arr in metrics.events:
-            all_events_data.append({
-                "Replication": rep_idx + 1, "Time (min)": float(t), "Task": name,
-                "Step": step, "Step label": pretty_step(step), "Note": note,
-                "Arrival time (min)": (float(arr) if arr is not None else None),
-                "Day": int(t // DAY_MIN)
-            })
-    events_df = pd.DataFrame(all_events_data)
-    
     st.markdown(f"## Results")
     
     create_kpi_banner(all_metrics, p, burnout_data, active_roles)
