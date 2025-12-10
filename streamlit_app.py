@@ -45,11 +45,11 @@ def is_open(t_min, open_minutes):
     return (t_min % DAY_MIN) < open_minutes
 
 def minutes_until_close(t_min, open_minutes):
-    return max(0.0, open_minutes - (t_min % DAY_MIN)) 
+    return max(0.0, open_minutes - (t_min % DAY_MIN))
 
 def minutes_until_open(t_min, open_minutes):
-    t_mod = t_min % _MIN
-    return 0.0 if t_mod < open_minutes else _MIN - t_mod
+    t_mod = t_min % DAY_MIN
+    return 0.0 if t_mod < open_minutes else DAY_MIN - t_mod
 
 def effective_open_minutes(sim_minutes, open_minutes):
     full_days = int(sim_minutes // DAY_MIN)
@@ -185,54 +185,48 @@ class CHCSystem:
         }
 
     def scheduled_service(self, resource, role_account, mean_time, role_for_dist=None):
-    if resource is None or mean_time <= 1e-12:
-        return
-    if role_for_dist is None:
-        role_for_dist = role_account
+        if resource is None or mean_time <= 1e-12:
+            return
+        if role_for_dist is None:
+            role_for_dist = role_account
 
-    remaining = draw_service_time(role_for_dist, mean_time, self.p["dist_role"], self.p["cv_speed"])
-    remaining += max(0.0, self.p["emr_overhead"].get(role_account, 0.0))
+        remaining = draw_service_time(role_for_dist, mean_time, self.p["dist_role"], self.p["cv_speed"])
+        remaining += max(0.0, self.p["emr_overhead"].get(role_account, 0.0))
 
-    open_minutes = self.p["open_minutes"]
-    available_set = self.availability.get(role_account, set())
+        open_minutes = self.p["open_minutes"]
+        available_set = self.availability.get(role_account, set())
 
-    while remaining > 1e-9:
-        current_min = int(self.env.now)
-        
-        if not is_open(self.env.now, open_minutes):
-            yield self.env.timeout(minutes_until_open(self.env.now, open_minutes))
-            continue
-        
-        if len(available_set) > 0 and current_min not in available_set:
-            yield self.env.timeout(1)
-            continue
-        
-        window = minutes_until_close(self.env.now, open_minutes)
-        
-        if len(available_set) > 0:
-            avail_window = 0  # Changed from 1 to 0
-            check_min = current_min
-            # Count consecutive available minutes
-            while check_min in available_set and avail_window < window and avail_window < remaining:
-                avail_window += 1
-                check_min += 1
-            work_chunk = min(remaining, window, max(1, avail_window))  # Ensure at least 1 minute
-        else:
-            work_chunk = min(remaining, window)
-        
-        # Add safety check
-        if work_chunk <= 0:
-            yield self.env.timeout(1)
-            continue
-        
-        with resource.request() as req:
-            t_req = self.env.now
-            yield req
-            self.m.waits[role_account].append(self.env.now - t_req)
-            self.m.taps[role_account] += 1
-            yield self.env.timeout(work_chunk)
-            self.m.service_time_sum[role_account] += work_chunk
-        remaining -= work_chunk
+        while remaining > 1e-9:
+            current_min = int(self.env.now)
+            
+            if not is_open(self.env.now, open_minutes):
+                yield self.env.timeout(minutes_until_open(self.env.now, open_minutes))
+                continue
+            
+            if len(available_set) > 0 and current_min not in available_set:
+                yield self.env.timeout(1)
+                continue
+            
+            window = minutes_until_close(self.env.now, open_minutes)
+            
+            if len(available_set) > 0:
+                avail_window = 1
+                check_min = current_min + 1
+                while check_min in available_set and avail_window < window and avail_window < remaining:
+                    avail_window += 1
+                    check_min += 1
+                work_chunk = min(remaining, window, avail_window)
+            else:
+                work_chunk = min(remaining, window)
+            
+            with resource.request() as req:
+                t_req = self.env.now
+                yield req
+                self.m.waits[role_account].append(self.env.now - t_req)
+                self.m.taps[role_account] += 1
+                yield self.env.timeout(work_chunk)
+                self.m.service_time_sum[role_account] += work_chunk
+            remaining -= work_chunk
 
 # =============================
 # Routing helpers
@@ -628,9 +622,11 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
             
             x = np.arange(1, num_days + 1)
             
+            # Plot line with markers
             ax.plot(x, mean_daily, color=colors.get(role, '#333333'), 
                    linewidth=2.5, marker='o', markersize=7, label=role, alpha=0.9)
             
+            # Add confidence band
             ax.fill_between(x, mean_daily - std_daily, mean_daily + std_daily,
                           color=colors.get(role, '#333333'), alpha=0.15)
     
@@ -638,12 +634,10 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     ax.set_ylabel('Queue Length (end of day)', fontsize=11, fontweight='bold')
     ax.set_title('Queue Backlog Trends by Role', fontsize=12, fontweight='bold')
     
-    # Fixed x-axis tick handling
     if num_days > 0:
         x_ticks = np.arange(1, num_days + 1)
         ax.set_xticks(x_ticks)
-        ax.set_xticklabels([str(i) for i in x_ticks])  # Simplified formatting
-        ax.set_xlim(0.5, num_days + 0.5)  # Add padding on edges
+        ax.set_xticklabels([f'Day {i}' for i in x_ticks])
     
     ax.legend(loc='best', fontsize=9, framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle=':')
