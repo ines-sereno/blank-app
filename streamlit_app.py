@@ -45,7 +45,7 @@ def is_open(t_min, open_minutes):
     return (t_min % DAY_MIN) < open_minutes
 
 def minutes_until_close(t_min, open_minutes):
-    return max(0.0, open_minutes - (t_min % _MIN))
+    return max(0.0, open_minutes - (t_min % DAY_MIN)) 
 
 def minutes_until_open(t_min, open_minutes):
     t_mod = t_min % _MIN
