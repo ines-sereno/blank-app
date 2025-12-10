@@ -59,7 +59,7 @@ def effective_open_minutes(sim_minutes, open_minutes):
 # =============================
 # Roles / constants
 # =============================
-ROLES = ["Front Desk", "Nurse", "Providers", "Back Office"]
+ROLES = ["Administrative Staff", "Nurse", "Providers", "Other"]
 DONE = "Done"
 
 # =============================
@@ -92,15 +92,15 @@ class Metrics:
 # Step labels
 # =============================
 STEP_LABELS = {
-    "ARRIVE": "Task arrived", "FD_QUEUE": "Front Desk: queued", "FD_DONE": "Front Desk: completed",
-    "FD_INSUFF": "Front Desk: missing info", "FD_RETRY_QUEUE": "Front Desk: re-queued (info)",
-    "FD_RETRY_DONE": "Front Desk: re-done (info)", "NU_QUEUE": "Nurse: queued", "NU_DONE": "Nurse: completed",
+    "ARRIVE": "Task arrived", "FD_QUEUE": "Administrative Staff: queued", "FD_DONE": "Administrative Staff: completed",
+    "FD_INSUFF": "Administrative Staff: missing info", "FD_RETRY_QUEUE": "Administrative Staff: re-queued (info)",
+    "FD_RETRY_DONE": "Administrative Staff: re-done (info)", "NU_QUEUE": "Nurse: queued", "NU_DONE": "Nurse: completed",
     "NU_INSUFF": "Nurse: missing info", "NU_RECHECK_QUEUE": "Nurse: re-check queued",
     "NU_RECHECK_DONE": "Nurse: re-check completed", "PR_QUEUE": "Providers: queued", "PR_DONE": "Providers: completed",
     "PR_INSUFF": "Providers: rework needed", "PR_RECHECK_QUEUE": "Providers: recheck queued",
-    "PR_RECHECK_DONE": "Providers: recheck done", "BO_QUEUE": "Back Office: queued", "BO_DONE": "Back Office: completed",
-    "BO_INSUFF": "Back Office: rework needed", "BO_RECHECK_QUEUE": "Back Office: recheck queued",
-    "BO_RECHECK_DONE": "Back Office: recheck done", "DONE": "Task resolved"
+    "PR_RECHECK_DONE": "Providers: recheck done", "BO_QUEUE": "Other: queued", "BO_DONE": "Other: completed",
+    "BO_INSUFF": "Other: rework needed", "BO_RECHECK_QUEUE": "Other: recheck queued",
+    "BO_RECHECK_DONE": "Other: recheck done", "DONE": "Task resolved"
 }
 
 def pretty_step(code):
@@ -176,11 +176,11 @@ class CHCSystem:
         self.backoffice = simpy.Resource(env, capacity=self.bo_cap) if self.bo_cap > 0 else None
 
         self.role_to_res = {
-            "Front Desk": self.frontdesk, "Nurse": self.nurse,
-            "Providers": self.provider, "Back Office": self.backoffice
+            "Administrative Staff": self.frontdesk, "Nurse": self.nurse,
+            "Providers": self.provider, "Other": self.backoffice
         }
         
-        avail_params = params.get("availability_per_hour", {"Front Desk": 60, "Nurse": 60, "Providers": 60, "Back Office": 60})
+        avail_params = params.get("availability_per_hour", {"Administrative Staff": 60, "Nurse": 60, "Providers": 60, "Other": 60})
         self.availability = {
             role: generate_availability_schedule(params["sim_minutes"], role, avail_params.get(role, 60), seed_offset)
             for role in ROLES
@@ -251,10 +251,10 @@ def handle_role(env, task_id, s: CHCSystem, role: str):
 
     res = s.role_to_res[role]
 
-    if role == "Front Desk":
+    if role == "Administrative Staff":
         if res is not None:
             s.m.log(env.now, task_id, "FD_QUEUE", "")
-            yield from s.scheduled_service(res, "Front Desk", s.p["svc_frontdesk"])
+            yield from s.scheduled_service(res, "Administrative Staff", s.p["svc_frontdesk"])
             s.m.log(env.now, task_id, "FD_DONE", "")
             fd_loops = 0
             while (fd_loops < s.p["max_fd_loops"]) and (random.random() < s.p["p_fd_insuff"]):
@@ -263,7 +263,7 @@ def handle_role(env, task_id, s: CHCSystem, role: str):
                 s.m.log(env.now, task_id, "FD_INSUFF", f"Missing info loop #{fd_loops}")
                 yield env.timeout(s.p["fd_loop_delay"])
                 s.m.log(env.now, task_id, "FD_RETRY_QUEUE", f"Loop #{fd_loops}")
-                yield from s.scheduled_service(res, "Front Desk", s.p["svc_frontdesk"])
+                yield from s.scheduled_service(res, "Administrative Staff", s.p["svc_frontdesk"])
                 s.m.log(env.now, task_id, "FD_RETRY_DONE", f"Loop #{fd_loops}")
 
     elif role == "Nurse":
@@ -279,9 +279,9 @@ def handle_role(env, task_id, s: CHCSystem, role: str):
                 nurse_loops += 1
                 s.m.loop_nurse_insufficient += 1
                 s.m.log(env.now, task_id, "NU_INSUFF", f"Back to FD loop #{nurse_loops}")
-                if s.role_to_res["Front Desk"] is not None:
+                if s.role_to_res["Administrative Staff"] is not None:
                     s.m.log(env.now, task_id, "FD_QUEUE", f"After nurse loop #{nurse_loops}")
-                    yield from s.scheduled_service(s.role_to_res["Front Desk"], "Front Desk", s.p["svc_frontdesk"])
+                    yield from s.scheduled_service(s.role_to_res["Administrative Staff"], "Administrative Staff", s.p["svc_frontdesk"])
                     s.m.log(env.now, task_id, "FD_DONE", f"After nurse loop #{nurse_loops}")
                 s.m.log(env.now, task_id, "NU_RECHECK_QUEUE", f"Loop #{nurse_loops}")
                 yield from s.scheduled_service(res, "Nurse", max(0.0, 0.5 * s.p["svc_nurse"]))
@@ -302,19 +302,19 @@ def handle_role(env, task_id, s: CHCSystem, role: str):
                 yield from s.scheduled_service(res, "Providers", max(0.0, 0.5 * s.p["svc_provider"]))
                 s.m.log(env.now, task_id, "PR_RECHECK_DONE", f"Loop #{provider_loops}")
 
-    elif role == "Back Office":
+    elif role == "Other":
         if res is not None:
             s.m.log(env.now, task_id, "BO_QUEUE", "")
-            yield from s.scheduled_service(res, "Back Office", s.p["svc_backoffice"])
+            yield from s.scheduled_service(res, "Other", s.p["svc_backoffice"])
             s.m.log(env.now, task_id, "BO_DONE", "")
             bo_loops = 0
             while (bo_loops < s.p["max_backoffice_loops"]) and (random.random() < s.p["p_backoffice_insuff"]):
                 bo_loops += 1
                 s.m.loop_backoffice_insufficient += 1
-                s.m.log(env.now, task_id, "BO_INSUFF", f"Back Office rework loop #{bo_loops}")
+                s.m.log(env.now, task_id, "BO_INSUFF", f"Other rework loop #{bo_loops}")
                 yield env.timeout(s.p["backoffice_loop_delay"])
                 s.m.log(env.now, task_id, "BO_RECHECK_QUEUE", f"Loop #{bo_loops}")
-                yield from s.scheduled_service(res, "Back Office", max(0.0, 0.5 * s.p["svc_backoffice"]))
+                yield from s.scheduled_service(res, "Other", max(0.0, 0.5 * s.p["svc_backoffice"]))
                 s.m.log(env.now, task_id, "BO_RECHECK_DONE", f"Loop #{bo_loops}")
 
     row = s.p["route_matrix"].get(role, {DONE: 1.0})
@@ -404,10 +404,10 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
 
     for role in active_roles:
         capacity = {
-            "Front Desk": p["frontdesk_cap"],
+            "Administrative Staff": p["frontdesk_cap"],
             "Nurse": p["nurse_cap"],
             "Providers": p["provider_cap"],
-            "Back Office": p["backoffice_cap"]
+            "Other": p["backoffice_cap"]
         }[role]
         if capacity == 0:
             continue
@@ -427,17 +427,17 @@ def calculate_burnout(all_metrics: List[Metrics], p: Dict, active_roles: List[st
 
             # ReworkPct (0–1)
             loop_counts = {
-                "Front Desk": metrics.loop_fd_insufficient,
+                "Administrative Staff": metrics.loop_fd_insufficient,
                 "Nurse": metrics.loop_nurse_insufficient,
                 "Providers": metrics.loop_provider_insufficient,
-                "Back Office": metrics.loop_backoffice_insufficient
+                "Other": metrics.loop_backoffice_insufficient
             }
             loops = loop_counts.get(role, 0)
             svc_time = {
-                "Front Desk": p["svc_frontdesk"],
+                "Administrative Staff": p["svc_frontdesk"],
                 "Nurse": p["svc_nurse"],
                 "Providers": p["svc_provider"],
-                "Back Office": p["svc_backoffice"]
+                "Other": p["svc_backoffice"]
             }[role]
             estimated_rework = loops * max(0.0, svc_time) * 0.5
             rework_pct = (estimated_rework / max(1, total_service)) if total_service > 0 else 0.0
@@ -532,10 +532,10 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
     for metrics in all_metrics:
         for role in active_roles:
             capacity = {
-                "Front Desk": p["frontdesk_cap"],
+                "Administrative Staff": p["frontdesk_cap"],
                 "Nurse": p["nurse_cap"],
                 "Providers": p["provider_cap"],
-                "Back Office": p["backoffice_cap"]
+                "Other": p["backoffice_cap"]
             }[role]
             
             if capacity > 0:
@@ -597,7 +597,7 @@ def plot_utilization_by_role(all_metrics: List[Metrics], p: Dict, active_roles: 
 
 def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List[str]):
     fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-    colors = {'Front Desk': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Back Office': '#d62728'}
+    colors = {'Administrative Staff': '#1f77b4', 'Nurse': '#ff7f0e', 'Providers': '#2ca02c', 'Other': '#d62728'}
     
     num_days = max(1, int(p["sim_minutes"] // DAY_MIN))
     open_minutes = p["open_minutes"]
@@ -717,14 +717,14 @@ def plot_rework_impact(all_metrics: List[Metrics], p: Dict, active_roles: List[s
     rework_time = {r: [] for r in active_roles}
     
     for metrics in all_metrics:
-        loop_counts = {"Front Desk": metrics.loop_fd_insufficient, "Nurse": metrics.loop_nurse_insufficient,
-                      "Providers": metrics.loop_provider_insufficient, "Back Office": metrics.loop_backoffice_insufficient}
+        loop_counts = {"Administrative Staff": metrics.loop_fd_insufficient, "Nurse": metrics.loop_nurse_insufficient,
+                      "Providers": metrics.loop_provider_insufficient, "Other": metrics.loop_backoffice_insufficient}
         
         for role in active_roles:
             total_time = metrics.service_time_sum[role]
             loops = loop_counts.get(role, 0)
-            svc_time = {"Front Desk": p["svc_frontdesk"], "Nurse": p["svc_nurse"],
-                       "Providers": p["svc_provider"], "Back Office": p["svc_backoffice"]}[role]
+            svc_time = {"Administrative Staff": p["svc_frontdesk"], "Nurse": p["svc_nurse"],
+                       "Providers": p["svc_provider"], "Other": p["svc_backoffice"]}[role]
             estimated_rework = loops * svc_time * 0.5
             estimated_original = total_time - estimated_rework
             original_time[role].append(max(0, estimated_original))
@@ -842,10 +842,10 @@ def plot_overtime_needed(all_metrics: List[Metrics], p: Dict, active_roles: List
     for metrics in all_metrics:
         for role in active_roles:
             capacity = {
-                "Front Desk": p["frontdesk_cap"],
+                "Administrative Staff": p["frontdesk_cap"],
                 "Nurse": p["nurse_cap"],
                 "Providers": p["provider_cap"],
-                "Back Office": p["backoffice_cap"]
+                "Other": p["backoffice_cap"]
             }[role]
             
             if capacity > 0:
@@ -1024,7 +1024,7 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
     ])
     
     rework_pct_list = []
-    loop_counts_lists = {"Front Desk": [], "Nurse": [], "Providers": [], "Back Office": []}
+    loop_counts_lists = {"Administrative Staff": [], "Nurse": [], "Providers": [], "Other": []}
     
     for metrics in all_metrics:
         rework_tasks = set()
@@ -1035,10 +1035,10 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
         done_ids = set(metrics.task_completion_time.keys())
         rework_pct_list.append(100.0 * len(rework_tasks & done_ids) / max(1, len(done_ids)))
         
-        loop_counts_lists["Front Desk"].append(metrics.loop_fd_insufficient)
+        loop_counts_lists["Administrative Staff"].append(metrics.loop_fd_insufficient)
         loop_counts_lists["Nurse"].append(metrics.loop_nurse_insufficient)
         loop_counts_lists["Providers"].append(metrics.loop_provider_insufficient)
-        loop_counts_lists["Back Office"].append(metrics.loop_backoffice_insufficient)
+        loop_counts_lists["Other"].append(metrics.loop_backoffice_insufficient)
     
     rework_overview_df = pd.DataFrame([
         {"Metric": "% tasks with any rework", "Value": fmt_mean_std_pct(rework_pct_list)}
@@ -1091,10 +1091,10 @@ def aggregate_replications(p: Dict, all_metrics: List[Metrics], active_roles: Li
     
     open_time_available = effective_open_minutes(p["sim_minutes"], p["open_minutes"])
     denom = {
-        "Front Desk": max(1, p["frontdesk_cap"]) * open_time_available,
+        "Administrative Staff": max(1, p["frontdesk_cap"]) * open_time_available,
         "Nurse": max(1, p["nurse_cap"]) * open_time_available,
         "Providers": max(1, p["provider_cap"]) * open_time_available,
-        "Back Office": max(1, p["backoffice_cap"]) * open_time_available,
+        "Other": max(1, p["backoffice_cap"]) * open_time_available,
     }
     
     util_lists = {r: [] for r in ROLES}
@@ -1138,7 +1138,7 @@ def _excel_engine():
 # =============================
 # Streamlit UI
 # =============================
-st.set_page_config(page_title="HSyE Burnout Grant - DES Model", layout="wide")
+st.set_page_config(page_title="Community Health Center Workflow Model", layout="wide")
 st.title("HSyE Burnout Grant - DES Model for Community Health Centers")
 st.caption("By Ines Sereno")
 
@@ -1180,28 +1180,26 @@ def prob_input(label: str, key: str, default: float = 0.0, help: str | None = No
 
 # -------- STEP 1: DESIGN --------
 if st.session_state.wizard_step == 1:
-    st.markdown("### Design Your Clinic")
-    
-    with st.expander("ℹ️ About This Model", expanded=True):
+    with st.expander("ℹ️ About This Model", expanded=False):
         st.markdown("""
-        This **discrete event simulation (DES) model** helps you understand how staffing, workflows, and workload 
-        affect both **operational performance** and **staff burnout** in community health centers.
+        This model simmulates the workflow of CHC paperwork to help analyze system performance, work burden, and associated burnout and to 
+        help evaluate potential process improvements and interventions.
         
-        **How it works:**
-        - Tasks arrive at different roles (Front Desk, Nurses, Providers, Back Office)
-        - Staff process tasks based on availability and service times
-        - Tasks may loop back for rework or missing information
+        **How tool works:**
+        - Patient-initiated paperwork, calls, or postal messages are received by various staff (nurses, providers, staff)
+        - Staff process those based on availability and Processing times
+        - Items received by the wrong type of personnel are routed appropriately
+        - The model tracks daily workload, inefficiency, response delays, and contribution to burnout for each type of role
         - The simulation tracks queues, wait times, and completion rates over multiple days
         
-        **How to use it:**
-        1. **Configure your clinic** below by setting staffing levels, arrival rates, and availability
-        2. **Adjust advanced settings** (optional) to fine-tune service times, rework rates, and task routing
-        3. **Click "Save"** to store your configuration
-        4. **Click "Run Simulation"** to see results including burnout scores, utilization, and bottlenecks
-        5. **Try different scenarios** to test interventions (e.g., hire more staff, reduce arrivals, improve workflows)
+        **How to use:**
+        1. **Define your clinic** below by setting staffing levels, routing logic, and processing times
+        2. **Click "Save"** to store your configuration
+        3. **Click "Run Simulation"** to see results including burnout scores, utilization, and bottlenecks
+        4. **Try different scenarios** to test interventions (e.g. more staff, reduce volumes, improve workflows)
         
         **Tips:**
-        - Start with the default values to see a baseline scenario
+        - Start with inputs that define the current process
         - Change one thing at a time to understand its impact
         - Pay attention to roles showing high utilization (>75%) or high burnout (>50)
         - Use the KPI banner in results to quickly compare different scenarios
@@ -1211,7 +1209,7 @@ if st.session_state.wizard_step == 1:
     
     def route_row_ui(from_role: str, defaults: Dict[str, float], disabled_source: bool = False, 
                      fd_cap_val: int = 0, nu_cap_val: int = 0, pr_cap_val: int = 0, bo_cap_val: int = 0) -> Dict[str, float]:
-        current_cap_map = {"Front Desk": fd_cap_val, "Nurse": nu_cap_val, "Providers": pr_cap_val, "Back Office": bo_cap_val}
+        current_cap_map = {"Administrative Staff": fd_cap_val, "Nurse": nu_cap_val, "Providers": pr_cap_val, "Other": bo_cap_val}
         st.markdown(f"**{from_role} →**")
         targets = [r for r in ROLES if r != from_role] + [DONE]
         cols = st.columns(len(targets))
@@ -1238,28 +1236,28 @@ if st.session_state.wizard_step == 1:
     
         seed = 42  # Fixed seed for reproducibility
 
-        st.markdown("### Role Configuration")
+        st.markdown("### Roles")
         st.caption("Configure staffing, arrivals, and availability for each role")
     
-        with st.expander("Front Desk", expanded=False):
+        with st.expander("Administrative Staff", expanded=False):
             cFD1, cFD2, cFD3 = st.columns(3)
             with cFD1:
-                fd_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
-                                                       help="Number of front desk staff")
+                fd_cap_form = st.number_input("Number working per day", 0, 50, _init_ss("fd_cap", 3), 1, "%d", key="fd_cap_input",
+                                                       help="Number of Administrative Staff staff")
             with cFD2:
-                arr_fd = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_fd", 4), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
+                arr_fd = st.number_input("Volume", 0, 500, _init_ss("arr_fd", 4), 1, "%d", disabled=(fd_cap_form==0), key="arr_fd_input",
                                      help="Average number of tasks per hour")
             with cFD3:
                 avail_fd = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_fd", 50), 1, "%d", disabled=(fd_cap_form==0), key="avail_fd_input",
                                        help="Minutes per hour available for work")
     
-        with st.expander("Nurse / MAs", expanded=False):
+        with st.expander("Nurses", expanded=False):
             cNU1, cNU2, cNU3 = st.columns(3)
             with cNU1:
-                nu_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("nurse_cap", 3), 1, "%d", key="nurse_cap_input",
+                nu_cap_form = st.number_input("Number working per day", 0, 50, _init_ss("nurse_cap", 3), 1, "%d", key="nurse_cap_input",
                                                           help="Number of nurses or medical assistants")
             with cNU2:
-                arr_nu = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_nu", 3), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
+                arr_nu = st.number_input("Volume", 0, 500, _init_ss("arr_nu", 3), 1, "%d", disabled=(nu_cap_form==0), key="arr_nu_input",
                                      help="Average number of tasks per hour")
             with cNU3:
                 avail_nu = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_nu", 50), 1, "%d", disabled=(nu_cap_form==0), key="avail_nu_input",
@@ -1268,22 +1266,22 @@ if st.session_state.wizard_step == 1:
         with st.expander("Providers", expanded=False):
             cPR1, cPR2, cPR3 = st.columns(3)
             with cPR1:
-                pr_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("provider_cap", 2), 1, "%d", key="provider_cap_input",
+                pr_cap_form = st.number_input("Number working per day", 0, 50, _init_ss("provider_cap", 2), 1, "%d", key="provider_cap_input",
                                                              help="Number of providers")
             with cPR2:
-                arr_pr = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_pr", 2), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
+                arr_pr = st.number_input("Volume", 0, 500, _init_ss("arr_pr", 2), 1, "%d", disabled=(pr_cap_form==0), key="arr_pr_input",
                                      help="Average number of tasks per hour")
             with cPR3:
                 avail_pr = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_pr", 50), 1, "%d", disabled=(pr_cap_form==0), key="avail_pr_input",
                                        help="Minutes per hour available for work")
     
-        with st.expander("Back Office", expanded=False):
+        with st.expander("Other", expanded=False):
             cBO1, cBO2, cBO3 = st.columns(3)
             with cBO1:
-                bo_cap_form = st.number_input("Staff on duty", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
-                                                       help="Number of back office staff")
+                bo_cap_form = st.number_input("Number working per day", 0, 50, _init_ss("backoffice_cap", 2), 1, "%d", key="bo_cap_input",
+                                                       help="Number of Other staff")
             with cBO2:
-                 arr_bo = st.number_input("Arrivals per hour", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
+                 arr_bo = st.number_input("Volume", 0, 500, _init_ss("arr_bo", 2), 1, "%d", disabled=(bo_cap_form==0), key="arr_bo_input",
                                      help="Average number of tasks per hour")
             with cBO3:
                 avail_bo = st.number_input("Availability (min/hour)", 0, 60, _init_ss("avail_bo", 50), 1, "%d", disabled=(bo_cap_form==0), key="avail_bo_input",
@@ -1311,9 +1309,9 @@ if st.session_state.wizard_step == 1:
         num_replications = st.number_input("Number of replications", 1, 1000, _init_ss("num_replications", 30), 1, "%d", 
                                       help="Number of independent simulation runs")
 
-        with st.expander("Advanced Settings – Service times, loops & routing", expanded=False):
+        with st.expander("Advanced Settings – Processing times, loops & routing", expanded=False):
         
-            st.markdown("### Burnout Priority Weights")
+            st.markdown("### Contributors to Burnout-Relative Weights")
             st.caption("Rank the burnout dimensions by importance (1 = most important, 3 = least important)")
             cB1, cB2, cB3 = st.columns(3)
             with cB1:
@@ -1335,87 +1333,87 @@ if st.session_state.wizard_step == 1:
         
             st.markdown("---")
         
-            with st.expander("Front Desk", expanded=False):
-                st.markdown("**Service Time**")
-                svc_frontdesk = st.slider("Mean service time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
+            with st.expander("Administrative Staff", expanded=False):
+                st.markdown("**Processing time**")
+                svc_frontdesk = st.slider("Mean Processing time (minutes)", 0.0, 30.0, _init_ss("svc_frontdesk", 3.0), 0.5, disabled=(fd_cap_form==0),
                                       help="Average time to complete a task")
             
                 st.markdown("**Rework Loops**")
                 cFDL1, cFDL2, cFDL3 = st.columns(3)
                 with cFDL1:
-                    p_fd_insuff = st.slider("Probability of missing info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.08), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff")
+                    p_fd_insuff = st.slider("Percent with insufficient info", 0.0, 1.0, _init_ss("p_fd_insuff", 0.08), 0.01, disabled=(fd_cap_form==0), key="fd_p_insuff")
                 with cFDL2:
-                    max_fd_loops = st.number_input("Max loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops")
+                    max_fd_loops = st.number_input("Maximum number of loops", 0, 10, _init_ss("max_fd_loops", 2), 1, "%d", disabled=(fd_cap_form==0), key="fd_max_loops")
                 with cFDL3:
                     fd_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("fd_loop_delay", 5.0), 0.5, disabled=(fd_cap_form==0), key="fd_delay")
             
-                st.markdown("**Routing: Where tasks go after Front Desk**")
-                fd_route = route_row_ui("Front Desk", {"Nurse": 0.50, "Providers": 0.10, "Back Office": 0.10, DONE: 0.30}, 
+                st.markdown("**Routing: Where tasks go after Administrative Staff**")
+                fd_route = route_row_ui("Administrative Staff", {"Nurse": 0.50, "Providers": 0.10, "Other": 0.10, DONE: 0.30}, 
                                    disabled_source=(fd_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                    pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
         
-            with st.expander("Nurse / MAs", expanded=False):
-                st.markdown("**Service Times**")
+            with st.expander("Nurses", expanded=False):
+                st.markdown("**Processing times**")
                 cNS1, cNS2 = st.columns(2)
                 with cNS1:
-                    svc_nurse_protocol = st.slider("Protocol service time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0))
+                    svc_nurse_protocol = st.slider("Protocol Processing time (minutes)", 0.0, 30.0, _init_ss("svc_nurse_protocol", 2.0), 0.5, disabled=(nu_cap_form==0))
                     p_protocol = st.slider("Probability of using protocol", 0.0, 1.0, _init_ss("p_protocol", 0.30), 0.05, disabled=(nu_cap_form==0))
                 with cNS2:
-                    svc_nurse = st.slider("Non-protocol service time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 5.0), 0.5, disabled=(nu_cap_form==0))
+                    svc_nurse = st.slider("Non-protocol Processing time (minutes)", 0.0, 40.0, _init_ss("svc_nurse", 5.0), 0.5, disabled=(nu_cap_form==0))
                 
                 st.markdown("**Rework Loops**")
                 cNUL1, cNUL2 = st.columns(2)
                 with cNUL1:
                     p_nurse_insuff = st.slider("Probability of insufficient info", 0.0, 1.0, _init_ss("p_nurse_insuff", 0.06), 0.01, disabled=(nu_cap_form==0), key="nu_p_insuff")
                 with cNUL2:
-                    max_nurse_loops = st.number_input("Max loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops")
+                    max_nurse_loops = st.number_input("Maximum number of loops", 0, 10, _init_ss("max_nurse_loops", 2), 1, "%d", disabled=(nu_cap_form==0), key="nu_max_loops")
             
                 st.markdown("**Routing: Where tasks go after Nurse**")
-                nu_route = route_row_ui("Nurse", {"Providers": 0.40, "Back Office": 0.20, DONE: 0.40}, 
+                nu_route = route_row_ui("Nurse", {"Providers": 0.40, "Other": 0.20, DONE: 0.40}, 
                                    disabled_source=(nu_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                    pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
         
             with st.expander("Providers", expanded=False):
-                st.markdown("**Service Time**")
-                svc_provider = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 7.0), 0.5, disabled=(pr_cap_form==0))
+                st.markdown("**Processing time**")
+                svc_provider = st.slider("Mean Processing time (minutes)", 0.0, 60.0, _init_ss("svc_provider", 7.0), 0.5, disabled=(pr_cap_form==0))
             
                 st.markdown("**Rework Loops**")
                 cPRL1, cPRL2, cPRL3 = st.columns(3)
                 with cPRL1:
                     p_provider_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_provider_insuff", 0.05), 0.01, disabled=(pr_cap_form==0), key="pr_p_insuff")
                 with cPRL2:
-                    max_provider_loops = st.number_input("Max loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops")
+                    max_provider_loops = st.number_input("Maximum number of loops", 0, 10, _init_ss("max_provider_loops", 2), 1, "%d", disabled=(pr_cap_form==0), key="pr_max_loops")
                 with cPRL3:
                     provider_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("provider_loop_delay", 5.0), 0.5, disabled=(pr_cap_form==0), key="pr_delay")
             
                 st.markdown("**Routing: Where tasks go after Providers**")
-                pr_route = route_row_ui("Providers", {"Back Office": 0.30, DONE: 0.70}, 
+                pr_route = route_row_ui("Providers", {"Other": 0.30, DONE: 0.70}, 
                                    disabled_source=(pr_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                    pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
         
-            with st.expander("Back Office", expanded=False):
-                st.markdown("**Service Time**")
-                svc_backoffice = st.slider("Mean service time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0))
+            with st.expander("Other", expanded=False):
+                st.markdown("**Processing time**")
+                svc_backoffice = st.slider("Mean Processing time (minutes)", 0.0, 60.0, _init_ss("svc_backoffice", 5.0), 0.5, disabled=(bo_cap_form==0))
             
                 st.markdown("**Rework Loops**")
                 cBOL1, cBOL2, cBOL3 = st.columns(3)
                 with cBOL1:
                     p_backoffice_insuff = st.slider("Probability of rework needed", 0.0, 1.0, _init_ss("p_backoffice_insuff", 0.04), 0.01, disabled=(bo_cap_form==0), key="bo_p_insuff")
                 with cBOL2:
-                    max_backoffice_loops = st.number_input("Max loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops")
+                    max_backoffice_loops = st.number_input("Maximum number of loops", 0, 10, _init_ss("max_backoffice_loops", 2), 1, "%d", disabled=(bo_cap_form==0), key="bo_max_loops")
                 with cBOL3:
                     backoffice_loop_delay = st.slider("Rework delay (min)", 0.0, 60.0, _init_ss("backoffice_loop_delay", 5.0), 0.5, disabled=(bo_cap_form==0), key="bo_delay")
             
-                st.markdown("**Routing: Where tasks go after Back Office**")
-                bo_route = route_row_ui("Back Office", {"Front Desk": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
+                st.markdown("**Routing: Where tasks go after Other**")
+                bo_route = route_row_ui("Other", {"Administrative Staff": 0.10, "Nurse": 0.10, "Providers": 0.10, DONE: 0.70}, 
                                    disabled_source=(bo_cap_form==0), fd_cap_val=fd_cap_form, nu_cap_val=nu_cap_form, 
                                    pr_cap_val=pr_cap_form, bo_cap_val=bo_cap_form)
         
             route: Dict[str, Dict[str, float]] = {}
-            route["Front Desk"] = fd_route
+            route["Administrative Staff"] = fd_route
             route["Nurse"] = nu_route
             route["Providers"] = pr_route
-            route["Back Office"] = bo_route
+            route["Other"] = bo_route
 
         saved = st.form_submit_button("Save", type="primary")
 
@@ -1434,7 +1432,7 @@ if st.session_state.wizard_step == 1:
             for r in ROLES:
                 if r in route:
                     for tgt in list(route[r].keys()):
-                        if tgt in ROLES and {"Front Desk": fd_cap_form, "Nurse": nu_cap_form, "Providers": pr_cap_form, "Back Office": bo_cap_form}[tgt] == 0:
+                        if tgt in ROLES and {"Administrative Staff": fd_cap_form, "Nurse": nu_cap_form, "Providers": pr_cap_form, "Other": bo_cap_form}[tgt] == 0:
                             route[r][tgt] = 0.0
 
             st.session_state["design"] = dict(
@@ -1442,16 +1440,16 @@ if st.session_state.wizard_step == 1:
                 seed=seed, num_replications=num_replications,
                 frontdesk_cap=fd_cap_form, nurse_cap=nu_cap_form,
                 provider_cap=pr_cap_form, backoffice_cap=bo_cap_form,
-                arrivals_per_hour_by_role={"Front Desk": int(arr_fd), "Nurse": int(arr_nu), 
-                                          "Providers": int(arr_pr), "Back Office": int(arr_bo)},
-                availability_per_hour={"Front Desk": int(avail_fd), "Nurse": int(avail_nu),
-                                      "Providers": int(avail_pr), "Back Office": int(avail_bo)},
+                arrivals_per_hour_by_role={"Administrative Staff": int(arr_fd), "Nurse": int(arr_nu), 
+                                          "Providers": int(arr_pr), "Other": int(arr_bo)},
+                availability_per_hour={"Administrative Staff": int(avail_fd), "Nurse": int(avail_nu),
+                                      "Providers": int(avail_pr), "Other": int(avail_bo)},
                 svc_frontdesk=svc_frontdesk, svc_nurse_protocol=svc_nurse_protocol, svc_nurse=svc_nurse,
                 svc_provider=svc_provider, svc_backoffice=svc_backoffice,
-                dist_role={"Front Desk": "normal", "NurseProtocol": "normal", "Nurse": "exponential",
-                          "Providers": "exponential", "Back Office": "exponential"},
+                dist_role={"Administrative Staff": "normal", "NurseProtocol": "normal", "Nurse": "exponential",
+                          "Providers": "exponential", "Other": "exponential"},
                 cv_speed=cv_speed,
-                emr_overhead={"Front Desk": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Providers": 0.5, "Back Office": 0.5},
+                emr_overhead={"Administrative Staff": 0.5, "Nurse": 0.5, "NurseProtocol": 0.5, "Providers": 0.5, "Other": 0.5},
                 burnout_weights={"ee_rank": ee_rank, "dp_rank": dp_rank, "ra_rank": ra_rank},
                 p_fd_insuff=p_fd_insuff, max_fd_loops=max_fd_loops, fd_loop_delay=fd_loop_delay,
                 p_nurse_insuff=p_nurse_insuff, max_nurse_loops=max_nurse_loops,
@@ -1481,8 +1479,8 @@ elif st.session_state.wizard_step == 2:
     seed = p.get("seed", 42)
     num_replications = p.get("num_replications", 30)
         
-    active_roles_caps = [("Providers", p["provider_cap"]), ("Front Desk", p["frontdesk_cap"]),
-                        ("Nurse", p["nurse_cap"]), ("Back Office", p["backoffice_cap"])]
+    active_roles_caps = [("Providers", p["provider_cap"]), ("Administrative Staff", p["frontdesk_cap"]),
+                        ("Nurse", p["nurse_cap"]), ("Other", p["backoffice_cap"])]
     active_roles = [r for r, cap in active_roles_caps if cap > 0]
     
     all_metrics = []
@@ -1600,7 +1598,7 @@ elif st.session_state.wizard_step == 2:
 
     col1, col2 = st.columns(2)
     with col1:
-        help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of service time. "
+        help_icon("**Rework Calculation:** Original work (blue) vs rework time (red). Rework = loops × 50% of Processing time. "
              "**Interpretation:** High rework % = errors, missing info, poor handoffs.",
              title="How is Rework Impact calculated?")
     with col2:
