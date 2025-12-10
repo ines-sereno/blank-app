@@ -1133,19 +1133,6 @@ def _excel_engine():
         except Exception:
             return None
 
-def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict:
-    if engine is None:
-        engine = _excel_engine()
-    
-    if engine:
-        bio = BytesIO()
-        with pd.ExcelWriter(bio, engine=engine) as xw:
-            events_df.to_excel(xw, index=False, sheet_name="RunLog")
-        bio.seek(0)  # Reset pointer to beginning
-        return {"bytes": bio.getvalue(), "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "ext": "xlsx"}
-    else:
-        st.error("Excel export requires xlsxwriter or openpyxl")
-        return {"bytes": b"", "mime": "application/octet-stream", "ext": "xlsx"}
 # =============================
 # Streamlit UI
 # =============================
@@ -1636,11 +1623,3 @@ elif st.session_state.wizard_step == 2:
              title="How is Overtime Needed calculated?")
     
     st.markdown("---")
-
-    st.markdown("## Download Data")
-    with st.spinner("Producing run log..."):
-        runlog_pkg = _runlog_workbook(events_df, engine=_excel_engine())
-    
-    st.download_button("Download Run Log (Excel)", data=runlog_pkg["bytes"],
-                      file_name=f"RunLog_{num_replications}reps.{runlog_pkg['ext']}",
-                      mime=runlog_pkg["mime"], type="primary")
