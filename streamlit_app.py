@@ -1141,11 +1141,11 @@ def _runlog_workbook(events_df: pd.DataFrame, engine: str | None = None) -> dict
         bio = BytesIO()
         with pd.ExcelWriter(bio, engine=engine) as xw:
             events_df.to_excel(xw, index=False, sheet_name="RunLog")
+        bio.seek(0)  # Reset pointer to beginning
         return {"bytes": bio.getvalue(), "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "ext": "xlsx"}
     else:
         st.error("Excel export requires xlsxwriter or openpyxl")
         return {"bytes": b"", "mime": "application/octet-stream", "ext": "xlsx"}
-
 # =============================
 # Streamlit UI
 # =============================
