@@ -622,11 +622,9 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
             
             x = np.arange(1, num_days + 1)
             
-            # Plot line with markers
             ax.plot(x, mean_daily, color=colors.get(role, '#333333'), 
                    linewidth=2.5, marker='o', markersize=7, label=role, alpha=0.9)
             
-            # Add confidence band
             ax.fill_between(x, mean_daily - std_daily, mean_daily + std_daily,
                           color=colors.get(role, '#333333'), alpha=0.15)
     
@@ -634,10 +632,12 @@ def plot_queue_over_time(all_metrics: List[Metrics], p: Dict, active_roles: List
     ax.set_ylabel('Queue Length (end of day)', fontsize=11, fontweight='bold')
     ax.set_title('Queue Backlog Trends by Role', fontsize=12, fontweight='bold')
     
+    # Fixed x-axis tick handling
     if num_days > 0:
         x_ticks = np.arange(1, num_days + 1)
         ax.set_xticks(x_ticks)
-        ax.set_xticklabels([f'{i}' for i in x_ticks])
+        ax.set_xticklabels([str(i) for i in x_ticks])  # Simplified formatting
+        ax.set_xlim(0.5, num_days + 0.5)  # Add padding on edges
     
     ax.legend(loc='best', fontsize=9, framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle=':')
